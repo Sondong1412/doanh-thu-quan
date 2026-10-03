@@ -2,7 +2,7 @@
 // khi đã đăng nhập đồng bộ thì dữ liệu nằm trên đám mây (xem cloud.js).
 //
 // state = {
-//   employees:  [{ id, name, salary: [{ from: 'YYYY-MM', amount }], rates: { serviceId: % }, createdAt, deletedAt? }]
+//   employees:  [{ id, name, salary: [{ from: 'YYYY-MM', amount }], defaultPct?, rates: { serviceId: % }, createdAt, deletedAt? }]
 //   services:   [{ id, name, price, pct, deletedAt? }]
 //   entries:    [{ id, date, serviceId, employeeId, amount, pct, note, createdAt, billId? }]   // doanh thu từ khách;
 //               các khoản khách trả chung một lần mang cùng billId
@@ -145,7 +145,7 @@ const Store = (() => {
     emp.salary.push({ from, amount });
   }
 
-  function saveEmployee({ id, name, baseSalary, from, rates }) {
+  function saveEmployee({ id, name, baseSalary, from, rates, defaultPct }) {
     let emp = employee(id);
     if (emp) {
       emp.name = name;
@@ -155,6 +155,8 @@ const Store = (() => {
       state.employees.push(emp);
     }
     emp.rates = rates;
+    if (defaultPct === undefined) delete emp.defaultPct;
+    else emp.defaultPct = defaultPct;
     commit({ catalog: 'employees', id: emp.id, value: emp });
   }
 
@@ -177,8 +179,27 @@ const Store = (() => {
     commit({ catalog: kind, id, value: used ? item : undefined });
   }
 
-  // % hoa hồng: ưu tiên mức riêng của nhân viên, không có thì lấy mức mặc định của dịch vụ.
-  const rateFor = (empId, svcId) => employee(empId)?.rates?.[svcId] ?? service(svcId)?.pct ?? 0;
+  // % hoa hồng của một nhân viên cho một dịch vụ, theo thứ tự ưu tiên:
+  // mức riêng của người đó cho dịch vụ đó -> mức mặc định của người đó -> mức mặc định của dịch vụ.
+  function rateFor(empId, svcId) {
+    const emp = employee(empId);
+    return emp?.rates?.[svcId] ?? emp?.defaultPct ?? service(svcId)?.pct ?? 0;
+  }
+
+  // Đặt một ô trong bảng % hoa hồng. `svcId` null là mức mặc định của nhân viên; `value` undefined là xóa ô đó.
+  function setRate(empId, svcId, value) {
+    const emp = employee(empId);
+    if (svcId) {
+      emp.rates ??= {};
+      if (value === undefined) delete emp.rates[svcId];
+      else emp.rates[svcId] = value;
+    } else if (value === undefined) {
+      delete emp.defaultPct;
+    } else {
+      emp.defaultPct = value;
+    }
+    commit({ catalog: 'employees', id: emp.id, value: emp });
+  }
 
   /* ---------- Doanh thu & khoản trừ (kind: 'entries' | 'deductions') ---------- */
 
@@ -301,7 +322,7 @@ const Store = (() => {
     set onError(fn) { onError = fn; },
     set onChange(fn) { onChange = fn; },
     load, attachRemote, adopt, detachRemote, employees, services, pick, employee, service, empName, svcName,
-    baseSalaryFor, saveEmployee, saveService, removeItem, rateFor,
+    baseSalaryFor, saveEmployee, saveService, removeItem, rateFor, setRate,
     add, addBill, update, remove, get, inPeriod, commissionOf,
     attendanceOf, setAttendance, workDays, payroll, settings, setSetting,
     exportData, importData, reset, minYear,

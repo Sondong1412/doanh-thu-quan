@@ -606,3 +606,23 @@ body.locked .tabs, body.locked .settings-btn { display: none; }
 .bill-group + .row { border-top: 1px solid var(--line); padding-top: 10px; }
 
 .form-actions { flex-wrap: wrap; gap: 8px; }
+
+/* ---------- Bảng % hoa hồng ---------- */
+
+.rate-grid th, .rate-grid td { padding: 4px; text-align: center; border-bottom: 0; }
+.rate-grid thead th { font-size: 13px; vertical-align: bottom; }
+.rate-grid thead th small { display: block; font-weight: 400; color: var(--muted); }
+.rate-grid input { width: 72px; min-height: 36px; padding: 0 6px; text-align: center; }
+.rate-grid td:nth-child(2) input { border-color: var(--muted); }
+
+.rate-grid th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  text-align: left;
+  padding-right: 12px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

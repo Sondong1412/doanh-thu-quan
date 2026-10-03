@@ -62,6 +62,48 @@ Actions['acc-reveal'] = el => {
   render();
 };
 
+// Bảng % hoa hồng: mỗi hàng một nhân viên, mỗi cột một dịch vụ, sửa trực tiếp từng ô.
+// Số mờ trong ô trống là mức đang áp dụng (mặc định của nhân viên, không có thì của dịch vụ).
+function ratesCard() {
+  const employees = Store.employees();
+  const services = Store.services();
+  if (!employees.length || !services.length) return '';
+  const cell = (emp, svc) => `
+    <td><input type="number" min="0" max="100" step="any" inputmode="decimal"
+      value="${(svc ? emp.rates?.[svc.id] : emp.defaultPct) ?? ''}" placeholder="${svc ? emp.defaultPct ?? svc.pct : ''}"
+      data-change="rate-set" data-emp="${emp.id}" data-svc="${svc?.id ?? ''}"
+      aria-label="% của ${esc(emp.name)} cho ${svc ? esc(svc.name) : 'mọi dịch vụ'}"></td>`;
+  return `
+    <section class="card">
+      <h2>Bảng % hoa hồng</h2>
+      <p class="hint">Mỗi ô là % của một nhân viên cho một dịch vụ, gõ số là lưu ngay. Ô để trống thì lấy % mặc định của nhân viên đó; nhân viên không có % mặc định thì lấy % của dịch vụ (số mờ trong ô là mức đang áp dụng). Thay đổi chỉ áp dụng cho các khoản nhập từ lúc này, các khoản đã nhập giữ nguyên %.</p>
+      <div class="table-wrap"><table class="rate-grid">
+        <thead><tr>
+          <th>Nhân viên</th>
+          <th>Mặc định<small>của nhân viên</small></th>
+          ${services.map(s => `<th>${esc(s.name)}<small>dịch vụ: ${s.pct}%</small></th>`).join('')}
+        </tr></thead>
+        <tbody>${employees.map(emp => `
+          <tr><th>${esc(emp.name)}</th>${cell(emp, null)}${services.map(s => cell(emp, s)).join('')}</tr>`).join('')}
+        </tbody>
+      </table></div>
+    </section>`;
+}
+
+Changes['rate-set'] = el => {
+  const { emp, svc } = el.dataset;
+  const value = el.value === '' ? undefined : clampPct(el.value);
+  if (value !== undefined) el.value = value;
+  Store.setRate(emp, svc || null, value);
+  // Đổi % mặc định của nhân viên thì các ô trống cùng hàng hiện mức mới. Không vẽ lại cả bảng để giữ chỗ đang gõ.
+  if (!svc) {
+    for (const input of el.closest('tr').querySelectorAll('input[data-svc]:not([data-svc=""])')) {
+      input.placeholder = value ?? Store.service(input.dataset.svc).pct;
+    }
+  }
+  toast('Đã lưu %');
+};
+
 const SettingsView = {
   render() {
     const synced = Cloud.status().signedIn;
@@ -73,7 +115,7 @@ const SettingsView = {
         <li class="row">
           <div class="row-main">
             <strong>${esc(emp.name)}</strong>
-            <span class="sub">Lương cứng ${fmtMoney(Store.baseSalaryFor(emp, nowYm))}/tháng${own ? ` · ${own} dịch vụ có % riêng` : ''}</span>
+            <span class="sub">Lương cứng ${fmtMoney(Store.baseSalaryFor(emp, nowYm))}/tháng${emp.defaultPct !== undefined ? ` · hoa hồng mặc định ${emp.defaultPct}%` : ''}${own ? ` · ${own} dịch vụ có % riêng` : ''}</span>
           </div>
           <div class="row-actions">
             <button type="button" class="btn btn-sm" data-action="emp-edit" data-id="${emp.id}">Sửa</button>
@@ -108,7 +150,8 @@ const SettingsView = {
             <button type="button" class="btn btn-primary btn-sm" data-action="svc-edit">+ Thêm dịch vụ</button>
           </div>
           ${svcs ? `<ul class="rows">${svcs}</ul>` : '<p class="empty">Chưa có dịch vụ nào.</p>'}
-        </section>` : ''}
+        </section>
+        ${ratesCard()}` : ''}
       ${can('editHr') ? `
         <section class="card">
           <h2>Nhập liệu</h2>
@@ -245,8 +288,8 @@ Actions['emp-edit'] = el => {
   const emp = Store.employee(el.dataset.id);
   const now = parseYmd(todayStr());
   const services = Store.services();
-  const rates = services.map(s => field(`${s.name} (mặc định ${s.pct}%)`,
-    `<input type="number" name="rate-${s.id}" min="0" max="100" step="any" placeholder="${s.pct}" value="${emp?.rates?.[s.id] ?? ''}">`)).join('');
+  const rates = services.map(s => field(`${s.name} (dịch vụ: ${s.pct}%)`,
+    `<input type="number" name="rate-${s.id}" min="0" max="100" step="any" placeholder="${emp?.defaultPct ?? s.pct}" value="${emp?.rates?.[s.id] ?? ''}">`)).join('');
   openModal({
     title: emp ? 'Sửa nhân viên' : 'Thêm nhân viên',
     body: `
@@ -255,9 +298,13 @@ Actions['emp-edit'] = el => {
         ${field(`Lương cứng mỗi tháng (${moneyUnit()})`, moneyInput('baseSalary', emp ? Store.baseSalaryFor(emp, todayStr().slice(0, 7)) : 0), emp ? '' : 'wide')}
         ${emp ? field('Mức lương này áp dụng từ', `<span class="inline-selects"><select name="fromMonth">${monthOptions(now.m)}</select><select name="fromYear">${yearOptions(now.y)}</select></span>`) : ''}
       </div>
-      <h3>% hoa hồng riêng theo dịch vụ</h3>
+      <h3>% hoa hồng</h3>
+      <div class="form-grid">
+        ${field('% mặc định của nhân viên này', `<input type="number" name="defaultPct" min="0" max="100" step="any" placeholder="theo từng dịch vụ" value="${emp?.defaultPct ?? ''}">`, 'wide')}
+      </div>
+      <p class="hint">% mặc định áp dụng cho mọi dịch vụ người này làm; để trống thì lấy % của từng dịch vụ. Bên dưới là % riêng cho từng dịch vụ, ô nào có số thì ưu tiên số đó.</p>
       ${services.length
-        ? `<p class="hint">Để trống nếu nhân viên hưởng % mặc định của dịch vụ.</p><div class="form-grid">${rates}</div>`
+        ? `<div class="form-grid">${rates}</div>`
         : '<p class="hint">Chưa có dịch vụ nào. Thêm dịch vụ trước rồi quay lại đặt % riêng nếu cần.</p>'}`,
     onSubmit: form => {
       const f = form.elements;
@@ -272,6 +319,7 @@ Actions['emp-edit'] = el => {
         baseSalary: parseMoney(f.baseSalary.value),
         from: emp ? `${f.fromYear.value}-${pad2(f.fromMonth.value)}` : null,
         rates: ownRates,
+        defaultPct: f.defaultPct.value === '' ? undefined : clampPct(f.defaultPct.value),
       });
       render();
     },
