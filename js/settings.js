@@ -34,6 +34,7 @@ function accountsCard() {
       </div>
       <div class="row-actions">
         <button type="button" class="btn btn-sm" data-action="acc-edit" data-uid="${m.uid}">Sửa</button>
+        <button type="button" class="btn btn-sm danger" data-action="acc-delete" data-uid="${m.uid}">Xóa</button>
       </div>
     </li>`).join('');
   return `
@@ -178,13 +179,20 @@ Actions['acc-edit'] = el => {
     title: `Tài khoản ${m.username}`,
     body: `
       <div class="form-grid">${accountFields(m)}</div>
-      <p class="hint">Quên mật khẩu: khóa tài khoản này rồi tạo tài khoản mới với tên đăng nhập khác.</p>`,
+      <p class="hint">Quên mật khẩu: xóa tài khoản này rồi tạo tài khoản mới với tên đăng nhập khác.</p>`,
     onSubmit: form => {
       const data = readAccountForm(form);
       if (!data) return false;
       return submitAsync(Cloud.updateAccount(m.uid, data), `Đã cập nhật tài khoản ${m.username}`);
     },
   });
+};
+
+Actions['acc-delete'] = async el => {
+  const m = Cloud.members().find(x => x.uid === el.dataset.uid);
+  const ok = await confirmBox(`Xóa tài khoản "${m.username}"? Người này sẽ bị đăng xuất và không đăng nhập được nữa. Số liệu doanh thu, lương đã nhập vẫn giữ nguyên. Tên đăng nhập "${m.username}" sẽ không tạo lại được.`);
+  if (!ok) return;
+  Cloud.deleteAccount(m.uid).then(() => toast(`Đã xóa tài khoản ${m.username}`), err => toast(authError(err), true));
 };
 
 Actions['cloud-password'] = () => openModal({

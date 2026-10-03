@@ -434,6 +434,9 @@ const Cloud = (() => {
   }
 
   const updateAccount = (uid, data) => membersRef.doc(uid).update(data);
+  // Xóa dòng phân quyền là tài khoản mất hết quyền và bị đăng xuất; app không xóa được bản ghi đăng nhập
+  // bên Firebase nên tên đăng nhập đó không tạo lại được.
+  const deleteAccount = uid => membersRef.doc(uid).delete();
 
   async function changePassword(current, next) {
     await user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(user.email, current));
@@ -455,7 +458,7 @@ const Cloud = (() => {
 
   return {
     set onStatus(fn) { onStatus = fn; },
-    start, need, signIn, signInPassword, signOut, createAccount, updateAccount, changePassword, status,
+    start, need, signIn, signInPassword, signOut, createAccount, updateAccount, deleteAccount, changePassword, status,
     members: () => members,
     // Khi không đăng nhập đồng bộ (dữ liệu riêng trên máy) thì người dùng có toàn quyền như chủ quán.
     // Đã đăng nhập mà chưa biết vai trò thì tạm coi là quyền thấp nhất.
