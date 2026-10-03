@@ -13,6 +13,9 @@ const Store = (() => {
   let state = emptyState();
   let db = null;
   let onError = () => {};
+  let onChange = () => {};
+  // Báo cho các tab khác của app biết dữ liệu vừa đổi, để tab mở sẵn không ghi đè bằng bản cũ.
+  const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(DB_NAME);
 
   function emptyState() {
     return { version: 1, employees: [], services: [], entries: [], deductions: [], attendance: {} };
@@ -33,28 +36,52 @@ const Store = (() => {
     });
   }
 
+  function read() {
+    if (!db) {
+      const raw = localStorage.getItem(LS_KEY);
+      return raw ? JSON.parse(raw) : undefined;
+    }
+    return new Promise((resolve, reject) => {
+      const req = db.transaction('kv').objectStore('kv').get('state');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  // Nạp lại bản đã lưu; trả về false nếu bộ nhớ đang giữ đúng bản đó.
+  async function refresh() {
+    const saved = await read();
+    if (saved?.rev && saved.rev === state.rev) return false;
+    state = saved ? normalize(saved) : emptyState();
+    return true;
+  }
+
+  async function sync() {
+    if (await refresh()) onChange();
+  }
+
   async function load() {
     try {
       db = await openDb();
-      const saved = await new Promise((resolve, reject) => {
-        const req = db.transaction('kv').objectStore('kv').get('state');
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      if (saved) state = normalize(saved);
+      await refresh();
     } catch {
       db = null;
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) state = normalize(JSON.parse(raw));
+      await refresh();
     }
+    if (channel) channel.onmessage = sync;
+    window.addEventListener('storage', e => { if (e.key === LS_KEY) sync(); });
+    // Tab bị trình duyệt cho ngủ có thể lỡ thông báo, nên kiểm tra lại mỗi khi quay về tab.
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) sync(); });
     navigator.storage?.persist?.().catch(() => {});
   }
 
   function save() {
+    state.rev = uid();
     try {
       if (db) {
         const tx = db.transaction('kv', 'readwrite');
         tx.objectStore('kv').put(state, 'state');
+        tx.oncomplete = () => channel?.postMessage('changed');
         tx.onerror = tx.onabort = () => onError(tx.error);
       } else {
         localStorage.setItem(LS_KEY, JSON.stringify(state));
@@ -220,6 +247,7 @@ const Store = (() => {
   return {
     get state() { return state; },
     set onError(fn) { onError = fn; },
+    set onChange(fn) { onChange = fn; },
     load, employees, services, pick, employee, service, empName, svcName,
     baseSalaryFor, saveEmployee, saveService, removeItem, rateFor,
     add, update, remove, get, inPeriod, commissionOf,

@@ -80,6 +80,12 @@ document.addEventListener('input', e => {
 
 Store.onError = () => toast('Không lưu được dữ liệu vào máy. Hãy sao lưu ra file trong Cài đặt.', true);
 
+// Tab khác vừa lưu dữ liệu: vẽ lại, trừ khi đang nhập dở để không xóa mất nội dung đang gõ.
+Store.onChange = () => {
+  const busy = document.getElementById('modal').open || document.activeElement?.matches('input, select');
+  if (!busy) render();
+};
+
 Store.load().then(render);
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
