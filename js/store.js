@@ -7,6 +7,7 @@
 //   entries:    [{ id, date, serviceId, employeeId, amount, pct, note, createdAt }]   // doanh thu từ khách
 //   deductions: [{ id, type: 'advance' | 'purchase', date, employeeId, amount, product?, note }]
 //   attendance: { 'YYYY-MM-DD': { employeeId: 1 | 0.5 | 0 } }
+//   settings:   { shorthand }   // tùy chọn chung của quán; shorthand = nhập tiền rút gọn theo nghìn
 // }
 const Store = (() => {
   const DB_NAME = 'doanh-thu-quan';
@@ -21,10 +22,10 @@ const Store = (() => {
   const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(DB_NAME);
 
   function emptyState() {
-    return { version: 1, employees: [], services: [], entries: [], deductions: [], attendance: {} };
+    return { version: 1, employees: [], services: [], entries: [], deductions: [], attendance: {}, settings: { shorthand: false } };
   }
 
-  const normalize = saved => ({ ...emptyState(), ...saved });
+  const normalize = saved => ({ ...emptyState(), ...saved, settings: { ...emptyState().settings, ...saved?.settings } });
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const byId = (list, id) => list.find(x => x.id === id);
 
@@ -94,7 +95,7 @@ const Store = (() => {
     }
   }
 
-  // Ghi nhận một thay đổi: { catalog, id, value } | { record, id, value, prev } | { attendance, empId, value } | { all }.
+  // Ghi nhận một thay đổi: { catalog, id, value } | { record, id, value, prev } | { attendance, empId, value } | { settings } | { all }.
   // `value` là undefined nghĩa là xóa; `prev` là ngày và nhân viên của bản ghi trước khi sửa hoặc xóa.
   function commit(change) {
     if (remote) remote.push(change);
@@ -253,6 +254,15 @@ const Store = (() => {
     return rows;
   }
 
+  /* ---------- Tùy chọn của quán ---------- */
+
+  const settings = () => state.settings;
+
+  function setSetting(key, value) {
+    state.settings[key] = value;
+    commit({ settings: state.settings });
+  }
+
   /* ---------- Sao lưu ---------- */
 
   const exportData = () => JSON.stringify({ app: DB_NAME, exportedAt: new Date().toISOString(), state }, null, 1);
@@ -284,7 +294,7 @@ const Store = (() => {
     load, attachRemote, adopt, detachRemote, employees, services, pick, employee, service, empName, svcName,
     baseSalaryFor, saveEmployee, saveService, removeItem, rateFor,
     add, update, remove, get, inPeriod, commissionOf,
-    attendanceOf, setAttendance, workDays, payroll,
+    attendanceOf, setAttendance, workDays, payroll, settings, setSetting,
     exportData, importData, reset, minYear,
   };
 })();

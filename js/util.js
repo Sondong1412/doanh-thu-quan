@@ -4,6 +4,7 @@
 const Actions = {};   // click  -> [data-action]
 const Changes = {};   // change -> [data-change]
 const Submits = {};   // submit -> form[data-submit]
+const Inputs = {};    // input  -> [data-input]
 
 /* ---------- Ngày tháng (chuỗi 'YYYY-MM-DD' theo giờ máy) ---------- */
 
@@ -52,7 +53,54 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const fmtNum = n => Math.round(n).toLocaleString('vi-VN');
 const fmtMoney = n => fmtNum(n) + ' ₫';
 const fmtDays = n => n.toLocaleString('vi-VN');
-const parseMoney = s => Number(String(s).replace(/\D/g, '')) || 0;
+
+// Ô nhập tiền: bình thường gõ đủ số (150000). Khi bật "nhập tiền rút gọn" trong Cài đặt thì gõ theo nghìn:
+// 150 là 150.000 ₫, 1000 là 1.000.000 ₫, 15,5 là 15.500 ₫.
+const shorthand = () => Store.settings().shorthand;
+const moneyUnit = () => (shorthand() ? 'nghìn ₫' : '₫');
+
+function parseMoney(s) {
+  const text = String(s);
+  if (!shorthand()) return Number(text.replace(/\D/g, '')) || 0;
+  return Math.round(parseFloat(text.replace(/[^\d,]/g, '').replace(',', '.')) * 1000) || 0;
+}
+
+// Nội dung hiện trong ô nhập ứng với một số tiền (ngược lại với parseMoney).
+function moneyText(amount) {
+  if (!amount) return '';
+  return shorthand() ? (amount / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 3 }) : fmtNum(amount);
+}
+
+// Chuẩn hóa nội dung đang gõ: thêm dấu chấm hàng nghìn; chế độ rút gọn cho phép phần lẻ sau dấu phẩy.
+function tidyMoney(text) {
+  if (!shorthand()) {
+    const n = Number(text.replace(/\D/g, ''));
+    return n ? fmtNum(n) : '';
+  }
+  const [int, dec] = text.replace(/[^\d,]/g, '').split(',');
+  const head = int ? Number(int).toLocaleString('vi-VN') : '';
+  return dec === undefined ? head : `${head || '0'},${dec.slice(0, 3)}`;
+}
+
+// Ở chế độ rút gọn, cạnh ô nhập luôn hiện số tiền đầy đủ để người nhập kiểm tra.
+const moneyPreview = amount => (shorthand() && amount ? `= ${fmtMoney(amount)}` : '');
+
+function moneyInput(name, amount, required = false) {
+  return `<span class="money-field">
+    <input type="text" inputmode="${shorthand() ? 'decimal' : 'numeric'}" class="money" name="${name}"${required ? ' required' : ''} autocomplete="off" value="${moneyText(amount)}">
+    <small class="money-preview">${moneyPreview(amount)}</small>
+  </span>`;
+}
+
+function showMoney(input) {
+  const preview = input.parentElement.querySelector('.money-preview');
+  if (preview) preview.textContent = moneyPreview(parseMoney(input.value));
+}
+
+function setMoney(input, amount) {
+  input.value = moneyText(amount);
+  showMoney(input);
+}
 const clampPct = v => Math.min(100, Math.max(0, Number(v) || 0));
 const sumBy = (list, fn) => list.reduce((t, x) => t + fn(x), 0);
 

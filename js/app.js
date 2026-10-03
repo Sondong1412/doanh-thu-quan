@@ -66,6 +66,7 @@ function render(keepDrafts = false) {
     if (!el || value === '' || (el.options && ![...el.options].some(o => o.value === value))) continue;
     el.value = value;
   }
+  for (const el of view.querySelectorAll('.money')) showMoney(el);
   for (const btn of document.querySelectorAll('.app-header [data-tab]')) {
     btn.classList.toggle('active', btn.dataset.tab === UI.tab);
   }
@@ -133,11 +134,13 @@ document.addEventListener('submit', e => {
   Submits[form.dataset.submit]?.(form);
 });
 
-// Ô nhập tiền tự thêm dấu chấm phân cách hàng nghìn.
 document.addEventListener('input', e => {
-  if (!e.target.classList?.contains('money')) return;
-  const n = parseMoney(e.target.value);
-  e.target.value = n ? fmtNum(n) : '';
+  const el = e.target;
+  if (el.classList?.contains('money')) {
+    el.value = tidyMoney(el.value);
+    showMoney(el);
+  }
+  if (el.dataset?.input) Inputs[el.dataset.input]?.(el);
 });
 
 Store.onError = () => toast('Không lưu được dữ liệu vào máy. Hãy sao lưu ra file trong Cài đặt.', true);

@@ -53,6 +53,12 @@ service cloud.firestore {
         allow write: if isOwner();
       }
 
+      // Tùy chọn chung của quán (ví dụ nhập tiền rút gọn): chủ quán và quản lý bật tắt, mọi tài khoản đều đọc.
+      match /meta/settings {
+        allow read: if isManager() || isStaff();
+        allow write: if isManager();
+      }
+
       // Hồ sơ nhân viên có lương cứng: nhân viên chỉ đọc được hồ sơ của mình.
       match /employees/{employeeId} {
         allow read: if isManager() || (isStaff() && myEmployee() == employeeId);

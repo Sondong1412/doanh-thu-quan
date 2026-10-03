@@ -4,6 +4,7 @@
 //
 // Cấu trúc trên Firestore (tách theo người để quy tắc bảo mật chặn được từng phần, xem firestore.rules):
 //   shops/main/meta/services             { items: { id: dịch vụ } }
+//   shops/main/meta/settings             tùy chọn chung của quán (nhập tiền rút gọn…)
 //   shops/main/employees/{id}            nhân viên (tên, lương cứng, % riêng)
 //   shops/main/sales/{ngày}_{nhân viên}  { date, employeeId, entries: { id: khoản doanh thu } }   (không gắn nhân viên: {ngày}_shop)
 //   shops/main/hr/{tháng}_{nhân viên}    { month, employeeId, deductions: { id: … }, attendance: { 'DD': 1 | 0.5 | 0 } }
@@ -15,7 +16,7 @@ const Cloud = (() => {
   const configured = Boolean(FIREBASE_CONFIG) && onWeb;
   const SERVER = { source: 'server' };
 
-  let auth, db, shop, servicesRef, employeesRef, salesRef, hrRef, membersRef;
+  let auth, db, shop, servicesRef, settingsRef, employeesRef, salesRef, hrRef, membersRef;
   let user = null;
   let role = null;          // 'owner' | 'manager' | 'staff' khi đã đăng nhập
   let myEmployee = null;    // nhân viên gắn với tài khoản đang đăng nhập
@@ -27,6 +28,7 @@ const Cloud = (() => {
   // Dữ liệu đang nghe từ Firestore.
   let services = {};
   let servicesKey = '';
+  let settings = {};
   const employees = new Map();
   const sales = new Map();
   const hr = new Map();
@@ -74,6 +76,7 @@ const Cloud = (() => {
     await db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
     shop = db.collection('shops').doc('main');
     servicesRef = shop.collection('meta').doc('services');
+    settingsRef = shop.collection('meta').doc('settings');
     employeesRef = shop.collection('employees');
     salesRef = shop.collection('sales');
     hrRef = shop.collection('hr');
@@ -99,7 +102,7 @@ const Cloud = (() => {
 
   function buildState() {
     const byId = list => list.sort((a, b) => (a.id < b.id ? -1 : 1));
-    const state = { employees: byId([...employees.values()]), services: byId(Object.values(services)), entries: [], deductions: [], attendance: {} };
+    const state = { employees: byId([...employees.values()]), services: byId(Object.values(services)), entries: [], deductions: [], attendance: {}, settings };
     for (const doc of sales.values()) state.entries.push(...Object.values(doc.entries ?? {}));
     for (const doc of hr.values()) {
       state.deductions.push(...Object.values(doc.deductions ?? {}));
@@ -237,6 +240,11 @@ const Cloud = (() => {
         return false;
       });
     }
+    // Tùy chọn của quán không bắt buộc: không đọc được (quy tắc Firestore bản cũ) thì dùng mặc định, không coi là lỗi.
+    stops.push(settingsRef.onSnapshot(snap => {
+      settings = snap.data() ?? {};
+      Store.adopt(buildState());
+    }, () => {}));
     await Promise.all(base);
     if (role === 'owner') offerUpload();
   }
@@ -246,6 +254,7 @@ const Cloud = (() => {
     stops = [];
     services = {};
     servicesKey = '';
+    settings = {};
     for (const map of [employees, sales, hr, unsent]) map.clear();
     periods.clear();
     waiting.clear();
@@ -293,6 +302,10 @@ const Cloud = (() => {
     if (change.all) {
       replaceAll(Store.state).catch(err => writeFailed(err?.code === 'unavailable'
         ? { message: 'cần có mạng để thay toàn bộ dữ liệu trên đám mây.' } : err));
+      return;
+    }
+    if (change.settings) {
+      settingsRef.set(change.settings).catch(writeFailed);
       return;
     }
     const batch = db.batch();
@@ -356,6 +369,8 @@ const Cloud = (() => {
       commits.push(batch.commit());
     }
     await Promise.all(commits);
+    // Ghi riêng để một quy tắc Firestore bản cũ (chưa có mục settings) không làm hỏng cả lần thay dữ liệu.
+    settingsRef.set(state.settings ?? {}).catch(() => {});
   }
 
   const hasData = s => s.employees.length || s.services.length || s.entries.length || s.deductions.length || Object.keys(s.attendance).length;

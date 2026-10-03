@@ -276,7 +276,7 @@ function deductionFields(type, d) {
     ${field('Ngày', `<input type="date" name="date" required value="${d.date}">`)}
     ${field('Nhân viên', `<select name="employeeId" required>${selectOptions(Store.pick('employees', d.employeeId), d.employeeId, 'Chọn nhân viên…')}</select>`)}
     ${type === 'purchase' ? field('Sản phẩm', `<input type="text" name="product" required autocomplete="off" value="${esc(d.product)}">`) : ''}
-    ${field('Số tiền (₫)', `<input type="text" inputmode="numeric" class="money" name="amount" required autocomplete="off" value="${d.amount ? fmtNum(d.amount) : ''}">`)}
+    ${field(`Số tiền (${moneyUnit()})`, moneyInput('amount', d.amount, true))}
     ${field('Ghi chú', `<input type="text" name="note" autocomplete="off" value="${esc(d.note)}">`, type === 'advance' ? 'wide' : '')}`;
 }
 
@@ -301,17 +301,19 @@ function deductionView(type, date) {
   const today = todayStr();
   const editable = can('editHr');
   const rows = list.map(d => `
-    <li class="row">
+    <li class="row tight">
       <div class="row-main">
         <strong>${esc(Store.empName(d.employeeId))}</strong>
         <span class="sub">${fmtDate(d.date)}${d.product ? ` · ${esc(d.product)}` : ''}${d.note ? ` · ${esc(d.note)}` : ''}</span>
       </div>
-      <div class="row-amount">${fmtMoney(d.amount)}</div>
-      ${editable ? `
-        <div class="row-actions">
-          <button type="button" class="btn btn-sm" data-action="ded-edit" data-id="${d.id}">Sửa</button>
-          <button type="button" class="btn btn-sm danger" data-action="ded-delete" data-id="${d.id}">Xóa</button>
-        </div>` : ''}
+      <div class="row-side">
+        <div class="row-amount">${fmtMoney(d.amount)}</div>
+        ${editable ? `
+          <div class="row-actions">
+            <button type="button" class="btn btn-sm" data-action="ded-edit" data-id="${d.id}">Sửa</button>
+            <button type="button" class="btn btn-sm danger" data-action="ded-delete" data-id="${d.id}">Xóa</button>
+          </div>` : ''}
+      </div>
     </li>`).join('');
   return `
     <section class="stats">

@@ -109,6 +109,17 @@ const SettingsView = {
           </div>
           ${svcs ? `<ul class="rows">${svcs}</ul>` : '<p class="empty">Chưa có dịch vụ nào.</p>'}
         </section>` : ''}
+      ${can('editHr') ? `
+        <section class="card">
+          <h2>Nhập liệu</h2>
+          <label class="check">
+            <input type="checkbox" data-change="set-shorthand"${Store.settings().shorthand ? ' checked' : ''}>
+            <span>
+              <strong>Nhập tiền rút gọn theo nghìn</strong>
+              <small>Gõ 150 là 150.000 ₫, gõ 20 là 20.000 ₫, gõ 1000 là 1.000.000 ₫. Áp dụng cho mọi ô nhập tiền${synced ? ', trên mọi máy và mọi tài khoản của quán' : ''}; cạnh ô nhập luôn hiện số tiền đầy đủ để kiểm tra.</small>
+            </span>
+          </label>
+        </section>` : ''}
       ${cloudCard()}
       ${synced && can('seeShop') ? accountsCard() : ''}
       ${manage ? `
@@ -124,6 +135,11 @@ const SettingsView = {
           </div>
         </section>` : ''}`;
   },
+};
+
+Changes['set-shorthand'] = el => {
+  Store.setSetting('shorthand', el.checked);
+  render();
 };
 
 /* ---------- Tài khoản đăng nhập ---------- */
@@ -236,7 +252,7 @@ Actions['emp-edit'] = el => {
     body: `
       <div class="form-grid">
         ${field('Tên nhân viên', `<input type="text" name="name" required autocomplete="off" value="${esc(emp?.name)}">`, 'wide')}
-        ${field('Lương cứng mỗi tháng (₫)', `<input type="text" inputmode="numeric" class="money" name="baseSalary" autocomplete="off" value="${emp ? fmtNum(Store.baseSalaryFor(emp, todayStr().slice(0, 7))) : ''}">`, emp ? '' : 'wide')}
+        ${field(`Lương cứng mỗi tháng (${moneyUnit()})`, moneyInput('baseSalary', emp ? Store.baseSalaryFor(emp, todayStr().slice(0, 7)) : 0), emp ? '' : 'wide')}
         ${emp ? field('Mức lương này áp dụng từ', `<span class="inline-selects"><select name="fromMonth">${monthOptions(now.m)}</select><select name="fromYear">${yearOptions(now.y)}</select></span>`) : ''}
       </div>
       <h3>% hoa hồng riêng theo dịch vụ</h3>
@@ -278,7 +294,7 @@ Actions['svc-edit'] = el => {
     body: `
       <div class="form-grid">
         ${field('Tên dịch vụ', `<input type="text" name="name" required autocomplete="off" value="${esc(svc?.name)}">`, 'wide')}
-        ${field('Giá mặc định (₫)', `<input type="text" inputmode="numeric" class="money" name="price" autocomplete="off" value="${svc?.price ? fmtNum(svc.price) : ''}">`)}
+        ${field(`Giá mặc định (${moneyUnit()})`, moneyInput('price', svc?.price))}
         ${field('% hoa hồng nhân viên', `<input type="number" name="pct" min="0" max="100" step="any" required value="${svc?.pct ?? ''}">`)}
       </div>
       <p class="hint">Giá và % được điền sẵn khi nhập doanh thu, vẫn sửa được cho từng lượt khách. Đổi ở đây không làm thay đổi các khoản đã nhập.</p>`,
