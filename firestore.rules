@@ -36,10 +36,16 @@ service cloud.firestore {
     }
 
     match /shops/main {
-      // Tài khoản và vai trò: chỉ chủ quán quản lý; mỗi người đọc được dòng của chính mình.
+      // Tài khoản, vai trò và mật khẩu (lưu để xem lại): chỉ chủ quán quản lý và xem được tất cả.
+      // Quản lý xem được tài khoản nhân viên. Mỗi người đọc được dòng của mình và chỉ tự sửa được mật khẩu.
       match /members/{uid} {
-        allow read: if isOwner() || (request.auth != null && request.auth.uid == uid);
-        allow write: if isOwner();
+        allow read: if isOwner()
+          || (request.auth != null && request.auth.uid == uid)
+          || (role() == 'manager' && resource.data.role == 'staff');
+        allow create, delete: if isOwner();
+        allow update: if isOwner() || (request.auth != null && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['password'])
+          && request.resource.data.password is string);
       }
 
       match /meta/services {

@@ -241,6 +241,7 @@ input:focus-visible, select:focus-visible, button:focus-visible, .btn:focus-with
 .stat-sub { font-size: 13px; color: var(--muted); }
 
 .hint { font-size: 13px; color: var(--ink-2); }
+code { font: 600 14px ui-monospace, Consolas, monospace; color: var(--ink); }
 .empty { color: var(--muted); padding: 8px 0; }
 .sub { font-size: 13px; color: var(--muted); }
 

@@ -7,7 +7,8 @@
 //   shops/main/employees/{id}            nhân viên (tên, lương cứng, % riêng)
 //   shops/main/sales/{ngày}_{nhân viên}  { date, employeeId, entries: { id: khoản doanh thu } }   (không gắn nhân viên: {ngày}_shop)
 //   shops/main/hr/{tháng}_{nhân viên}    { month, employeeId, deductions: { id: … }, attendance: { 'DD': 1 | 0.5 | 0 } }
-//   shops/main/members/{uid}             { username, role: 'manager' | 'staff' | 'blocked', employeeId }
+//   shops/main/members/{uid}             { username, role: 'manager' | 'staff' | 'blocked', employeeId, password }
+//                                        (mật khẩu lưu ở dạng đọc được để chủ quán, quản lý xem lại theo yêu cầu của quán)
 const Cloud = (() => {
   const SDK = 'https://www.gstatic.com/firebasejs/12.4.0/';
   const onWeb = location.protocol.startsWith('http');
@@ -228,8 +229,9 @@ const Cloud = (() => {
     } else {
       base.push(listen('employees', employeesRef, intoMap(employees)), ...need(todayStr().slice(0, 7)));
     }
-    if (role === 'owner') {
-      listen('members', membersRef, snap => {
+    // Chủ quán thấy mọi tài khoản; quản lý chỉ thấy tài khoản nhân viên (để xem lại mật khẩu giúp họ).
+    if (role !== 'staff') {
+      listen('members', role === 'owner' ? membersRef : membersRef.where('role', '==', 'staff'), snap => {
         members = snap.docs.map(d => ({ uid: d.id, ...d.data() })).sort((a, b) => a.username.localeCompare(b.username));
         onStatus();
         return false;
@@ -427,7 +429,7 @@ const Cloud = (() => {
       const other = connect(app);
       await other.setPersistence(firebase.auth.Auth.Persistence.NONE);
       const created = await other.createUserWithEmailAndPassword(emailOf(username), password);
-      await membersRef.doc(created.user.uid).set({ username, role: newRole, employeeId: employeeId || null, createdAt: Date.now() });
+      await membersRef.doc(created.user.uid).set({ username, password, role: newRole, employeeId: employeeId || null, createdAt: Date.now() });
     } finally {
       app.delete();
     }
@@ -441,6 +443,7 @@ const Cloud = (() => {
   async function changePassword(current, next) {
     await user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(user.email, current));
     await user.updatePassword(next);
+    await membersRef.doc(user.uid).update({ password: next });
   }
 
   function status() {

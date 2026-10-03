@@ -25,28 +25,46 @@ function cloudCard() {
   return `<section class="card"><h2>Đồng bộ đám mây</h2>${body}</section>`;
 }
 
+// Tài khoản đang được bấm "Xem mật khẩu"; mặc định mật khẩu bị che để người đứng cạnh không nhìn thấy.
+const revealed = new Set();
+
+// Chủ quán quản lý mọi tài khoản; quản lý chỉ xem được tài khoản (và mật khẩu) của nhân viên.
 function accountsCard() {
-  const rows = Cloud.members().map(m => `
-    <li class="row">
-      <div class="row-main">
-        <strong>${esc(m.username)}</strong>
-        <span class="sub">${ROLE_LABELS[m.role] ?? esc(m.role)}${m.employeeId ? ` · ${esc(Store.empName(m.employeeId))}` : ''}</span>
-      </div>
-      <div class="row-actions">
-        <button type="button" class="btn btn-sm" data-action="acc-edit" data-uid="${m.uid}">Sửa</button>
-        <button type="button" class="btn btn-sm danger" data-action="acc-delete" data-uid="${m.uid}">Xóa</button>
-      </div>
-    </li>`).join('');
+  const owner = can('manage');
+  const rows = Cloud.members().map(m => {
+    const shown = revealed.has(m.uid);
+    const password = !m.password ? 'chưa lưu' : shown ? `<code>${esc(m.password)}</code>` : '••••••••';
+    return `
+      <li class="row">
+        <div class="row-main">
+          <strong>${esc(m.username)}</strong>
+          <span class="sub">${ROLE_LABELS[m.role] ?? esc(m.role)}${m.employeeId ? ` · ${esc(Store.empName(m.employeeId))}` : ''}</span>
+          <span class="sub">Mật khẩu: ${password}</span>
+        </div>
+        <div class="row-actions">
+          ${m.password ? `<button type="button" class="btn btn-sm" data-action="acc-reveal" data-uid="${m.uid}">${shown ? 'Ẩn mật khẩu' : 'Xem mật khẩu'}</button>` : ''}
+          ${owner ? `
+            <button type="button" class="btn btn-sm" data-action="acc-edit" data-uid="${m.uid}">Sửa</button>
+            <button type="button" class="btn btn-sm danger" data-action="acc-delete" data-uid="${m.uid}">Xóa</button>` : ''}
+        </div>
+      </li>`;
+  }).join('');
   return `
     <section class="card">
       <div class="card-head">
-        <h2>Tài khoản đăng nhập</h2>
-        <button type="button" class="btn btn-primary btn-sm" data-action="acc-add">+ Thêm tài khoản</button>
+        <h2>${owner ? 'Tài khoản đăng nhập' : 'Tài khoản nhân viên'}</h2>
+        ${owner ? '<button type="button" class="btn btn-primary btn-sm" data-action="acc-add">+ Thêm tài khoản</button>' : ''}
       </div>
-      <p class="hint">Quản lý: nhập doanh thu cho mọi người, chấm công, ứng lương, xem bảng lương. Nhân viên: chỉ nhập doanh thu và xem lương của chính mình.</p>
-      ${rows ? `<ul class="rows">${rows}</ul>` : '<p class="empty">Chưa có tài khoản nào ngoài chủ quán.</p>'}
+      ${owner ? '<p class="hint">Quản lý: nhập doanh thu cho mọi người, chấm công, ứng lương, xem bảng lương và xem mật khẩu của nhân viên. Nhân viên: chỉ nhập doanh thu và xem lương của chính mình.</p>' : ''}
+      ${rows ? `<ul class="rows">${rows}</ul>` : `<p class="empty">${owner ? 'Chưa có tài khoản nào ngoài chủ quán.' : 'Chưa có tài khoản nhân viên nào.'}</p>`}
     </section>`;
 }
+
+Actions['acc-reveal'] = el => {
+  const { uid } = el.dataset;
+  if (!revealed.delete(uid)) revealed.add(uid);
+  render();
+};
 
 const SettingsView = {
   render() {
@@ -96,7 +114,7 @@ const SettingsView = {
           ${svcs ? `<ul class="rows">${svcs}</ul>` : '<p class="empty">Chưa có dịch vụ nào.</p>'}
         </section>` : ''}
       ${cloudCard()}
-      ${manage && synced ? accountsCard() : ''}
+      ${synced && can('seeShop') ? accountsCard() : ''}
       ${manage ? `
         <section class="card">
           <h2>Dữ liệu</h2>
@@ -163,7 +181,7 @@ Actions['acc-add'] = () => openModal({
       ${field('Mật khẩu (ít nhất 8 ký tự)', '<input type="text" name="password" required minlength="8" autocomplete="off">')}
       ${accountFields()}
     </div>
-    <p class="hint">Hãy ghi lại mật khẩu để đưa cho người dùng: app không xem lại được mật khẩu, và tên đăng nhập đã tạo thì không đổi được.</p>`,
+    <p class="hint">Chủ quán xem lại được mật khẩu trong danh sách tài khoản (quản lý xem được của nhân viên). Tên đăng nhập đã tạo thì không đổi được.</p>`,
   submitLabel: 'Tạo tài khoản',
   onSubmit: form => {
     const data = readAccountForm(form);
@@ -179,7 +197,7 @@ Actions['acc-edit'] = el => {
     title: `Tài khoản ${m.username}`,
     body: `
       <div class="form-grid">${accountFields(m)}</div>
-      <p class="hint">Quên mật khẩu: xóa tài khoản này rồi tạo tài khoản mới với tên đăng nhập khác.</p>`,
+      <p class="hint">Quên mật khẩu: bấm "Xem mật khẩu" ở danh sách tài khoản.</p>`,
     onSubmit: form => {
       const data = readAccountForm(form);
       if (!data) return false;
@@ -201,7 +219,8 @@ Actions['cloud-password'] = () => openModal({
     <div class="form-grid">
       ${field('Mật khẩu hiện tại', '<input type="password" name="current" required autocomplete="current-password">', 'wide')}
       ${field('Mật khẩu mới (ít nhất 8 ký tự)', '<input type="password" name="next" required minlength="8" autocomplete="new-password">', 'wide')}
-    </div>`,
+    </div>
+    <p class="hint">Chủ quán${Cloud.role() === 'staff' ? ' và quản lý' : ''} xem được mật khẩu này, nên đừng dùng mật khẩu bạn đang dùng ở nơi khác.</p>`,
   submitLabel: 'Đổi mật khẩu',
   onSubmit: form => submitAsync(Cloud.changePassword(form.elements.current.value, form.elements.next.value), 'Đã đổi mật khẩu'),
 });
