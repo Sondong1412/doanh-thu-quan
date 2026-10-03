@@ -94,8 +94,8 @@ const Store = (() => {
     }
   }
 
-  // Ghi nhận một thay đổi: { catalog, id, value } | { record, id, date, oldDate, value } | { attendance, empId, value } | { all }.
-  // `value` là undefined nghĩa là xóa.
+  // Ghi nhận một thay đổi: { catalog, id, value } | { record, id, value, prev } | { attendance, empId, value } | { all }.
+  // `value` là undefined nghĩa là xóa; `prev` là ngày và nhân viên của bản ghi trước khi sửa hoặc xóa.
   function commit(change) {
     if (remote) remote.push(change);
     else save();
@@ -183,20 +183,20 @@ const Store = (() => {
   function add(kind, data) {
     const item = { id: uid(), createdAt: Date.now(), ...data };
     state[kind].push(item);
-    commit({ record: kind, id: item.id, date: item.date, value: item });
+    commit({ record: kind, id: item.id, value: item });
   }
 
   function update(kind, id, data) {
     const item = byId(state[kind], id);
-    const oldDate = item.date;
+    const prev = { date: item.date, employeeId: item.employeeId };
     Object.assign(item, data);
-    commit({ record: kind, id, date: item.date, oldDate, value: item });
+    commit({ record: kind, id, value: item, prev });
   }
 
   function remove(kind, id) {
     const item = byId(state[kind], id);
     state[kind] = state[kind].filter(x => x.id !== id);
-    commit({ record: kind, id, date: item.date });
+    commit({ record: kind, id, prev: { date: item.date, employeeId: item.employeeId } });
   }
 
   const get = (kind, id) => byId(state[kind], id);

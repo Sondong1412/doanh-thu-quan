@@ -1,4 +1,4 @@
-// Màn hình "Cài đặt": quản lý nhân viên, dịch vụ và sao lưu dữ liệu.
+// Màn hình "Cài đặt": nhân viên, dịch vụ, đồng bộ đám mây, tài khoản đăng nhập và sao lưu dữ liệu.
 
 function cloudCard() {
   const s = Cloud.status();
@@ -7,24 +7,50 @@ function cloudCard() {
     body = '<p class="hint">Đồng bộ đám mây chỉ hoạt động khi mở app bằng địa chỉ web, không dùng được khi mở file trực tiếp trên máy.</p>';
   } else if (!s.configured) {
     body = '<p class="hint">Chưa thiết lập. Dữ liệu hiện chỉ lưu trên máy này.</p>';
-  } else if (s.email) {
+  } else if (s.signedIn) {
     body = `
-      <p>Đang đồng bộ bằng tài khoản <strong>${esc(s.email)}</strong>.</p>
+      <p>Đang đăng nhập: <strong>${esc(s.name)}</strong> <span class="badge">${ROLE_LABELS[s.role]}</span></p>
       <p class="hint">${s.pending
         ? 'Có thay đổi đang chờ gửi lên, sẽ tự gửi khi có mạng.'
-        : 'Mọi thay đổi đã được lưu lên đám mây và tự cập nhật trên các máy khác đăng nhập cùng dữ liệu.'}</p>
-      <div class="button-row"><button type="button" class="btn" data-action="cloud-logout">Đăng xuất</button></div>`;
+        : 'Mọi thay đổi đã được lưu lên đám mây và tự cập nhật trên các máy khác.'}</p>
+      <div class="button-row">
+        ${s.viaGoogle ? '' : '<button type="button" class="btn" data-action="cloud-password">Đổi mật khẩu</button>'}
+        <button type="button" class="btn" data-action="cloud-logout">Đăng xuất</button>
+      </div>`;
   } else {
     body = `
-      <p class="hint">Đăng nhập để dữ liệu được lưu trên đám mây và dùng chung giữa điện thoại, máy tính. Khi chưa đăng nhập, dữ liệu chỉ lưu trên máy này.</p>
-      ${s.available ? '<div class="button-row"><button type="button" class="btn btn-primary" data-action="cloud-login">Đăng nhập bằng Google</button></div>' : ''}`;
+      <p class="hint">Đăng nhập để dùng dữ liệu chung của quán trên đám mây. Khi chưa đăng nhập, dữ liệu chỉ lưu trên máy này.</p>
+      ${s.available ? '<div class="button-row"><button type="button" class="btn btn-primary" data-action="cloud-login">Đăng nhập</button></div>' : ''}`;
   }
   return `<section class="card"><h2>Đồng bộ đám mây</h2>${body}</section>`;
 }
 
+function accountsCard() {
+  const rows = Cloud.members().map(m => `
+    <li class="row">
+      <div class="row-main">
+        <strong>${esc(m.username)}</strong>
+        <span class="sub">${ROLE_LABELS[m.role] ?? esc(m.role)}${m.employeeId ? ` · ${esc(Store.empName(m.employeeId))}` : ''}</span>
+      </div>
+      <div class="row-actions">
+        <button type="button" class="btn btn-sm" data-action="acc-edit" data-uid="${m.uid}">Sửa</button>
+      </div>
+    </li>`).join('');
+  return `
+    <section class="card">
+      <div class="card-head">
+        <h2>Tài khoản đăng nhập</h2>
+        <button type="button" class="btn btn-primary btn-sm" data-action="acc-add">+ Thêm tài khoản</button>
+      </div>
+      <p class="hint">Quản lý: nhập doanh thu cho mọi người, chấm công, ứng lương, xem bảng lương. Nhân viên: chỉ nhập doanh thu và xem lương của chính mình.</p>
+      ${rows ? `<ul class="rows">${rows}</ul>` : '<p class="empty">Chưa có tài khoản nào ngoài chủ quán.</p>'}
+    </section>`;
+}
+
 const SettingsView = {
   render() {
-    const synced = Boolean(Cloud.status().email);
+    const synced = Cloud.status().signedIn;
+    const manage = can('manage');
     const nowYm = todayStr().slice(0, 7);
     const emps = Store.employees().map(emp => {
       const own = Store.services().filter(s => emp.rates?.[s.id] !== undefined).length;
@@ -51,35 +77,126 @@ const SettingsView = {
           <button type="button" class="btn btn-sm danger" data-action="svc-delete" data-id="${s.id}">Xóa</button>
         </div>
       </li>`).join('');
+    // Nhân viên, dịch vụ, tài khoản và sao lưu chỉ dành cho chủ quán.
     return `
-      <section class="card">
-        <div class="card-head">
-          <h2>Nhân viên</h2>
-          <button type="button" class="btn btn-primary btn-sm" data-action="emp-edit">+ Thêm nhân viên</button>
-        </div>
-        ${emps ? `<ul class="rows">${emps}</ul>` : '<p class="empty">Chưa có nhân viên nào.</p>'}
-      </section>
-      <section class="card">
-        <div class="card-head">
-          <h2>Dịch vụ</h2>
-          <button type="button" class="btn btn-primary btn-sm" data-action="svc-edit">+ Thêm dịch vụ</button>
-        </div>
-        ${svcs ? `<ul class="rows">${svcs}</ul>` : '<p class="empty">Chưa có dịch vụ nào.</p>'}
-      </section>
+      ${manage ? `
+        <section class="card">
+          <div class="card-head">
+            <h2>Nhân viên</h2>
+            <button type="button" class="btn btn-primary btn-sm" data-action="emp-edit">+ Thêm nhân viên</button>
+          </div>
+          ${emps ? `<ul class="rows">${emps}</ul>` : '<p class="empty">Chưa có nhân viên nào.</p>'}
+        </section>
+        <section class="card">
+          <div class="card-head">
+            <h2>Dịch vụ</h2>
+            <button type="button" class="btn btn-primary btn-sm" data-action="svc-edit">+ Thêm dịch vụ</button>
+          </div>
+          ${svcs ? `<ul class="rows">${svcs}</ul>` : '<p class="empty">Chưa có dịch vụ nào.</p>'}
+        </section>` : ''}
       ${cloudCard()}
-      <section class="card">
-        <h2>Dữ liệu</h2>
-        <p class="hint">${synced
-          ? 'Dữ liệu đang được lưu trên đám mây. Khôi phục từ file hoặc xóa toàn bộ sẽ áp dụng cho mọi máy đang dùng chung dữ liệu này.'
-          : 'Dữ liệu được lưu trong trình duyệt của riêng máy này. Hãy sao lưu ra file định kỳ để không mất dữ liệu khi đổi máy hoặc xóa dữ liệu trình duyệt.'}</p>
-        <div class="button-row">
-          <button type="button" class="btn" data-action="data-export">Sao lưu ra file</button>
-          <label class="btn">Khôi phục từ file<input type="file" accept=".json,application/json" data-change="data-import" hidden></label>
-          <button type="button" class="btn danger" data-action="data-reset">Xóa toàn bộ dữ liệu</button>
-        </div>
-      </section>`;
+      ${manage && synced ? accountsCard() : ''}
+      ${manage ? `
+        <section class="card">
+          <h2>Dữ liệu</h2>
+          <p class="hint">${synced
+            ? 'Dữ liệu đang được lưu trên đám mây. Khôi phục từ file hoặc xóa toàn bộ sẽ áp dụng cho mọi máy đang dùng chung dữ liệu này.'
+            : 'Dữ liệu được lưu trong trình duyệt của riêng máy này. Hãy sao lưu ra file định kỳ để không mất dữ liệu khi đổi máy hoặc xóa dữ liệu trình duyệt.'}</p>
+          <div class="button-row">
+            <button type="button" class="btn" data-action="data-export">Sao lưu ra file</button>
+            <label class="btn">Khôi phục từ file<input type="file" accept=".json,application/json" data-change="data-import" hidden></label>
+            <button type="button" class="btn danger" data-action="data-reset">Xóa toàn bộ dữ liệu</button>
+          </div>
+        </section>` : ''}`;
   },
 };
+
+/* ---------- Tài khoản đăng nhập ---------- */
+
+const AUTH_ERRORS = {
+  'auth/email-already-in-use': 'Tên đăng nhập này đã có người dùng, hãy chọn tên khác.',
+  'auth/weak-password': 'Mật khẩu quá yếu, hãy đặt dài và khó đoán hơn.',
+  'auth/operation-not-allowed': 'Chưa bật kiểu đăng nhập Email/Password trong Firebase Console (Authentication > Sign-in method).',
+  'auth/invalid-credential': 'Sai tên đăng nhập hoặc mật khẩu.',
+  'auth/wrong-password': 'Sai mật khẩu.',
+  'auth/user-not-found': 'Sai tên đăng nhập hoặc mật khẩu.',
+  'auth/invalid-email': 'Tên đăng nhập không hợp lệ.',
+  'auth/too-many-requests': 'Thử sai quá nhiều lần, hãy chờ một lúc rồi thử lại.',
+  'auth/network-request-failed': 'Không kết nối được máy chủ, hãy kiểm tra mạng.',
+};
+const authError = err => AUTH_ERRORS[err?.code] ?? `Có lỗi: ${err?.message ?? err}`;
+
+// Chạy một việc cần máy chủ trả lời rồi mới đóng hộp thoại; lỗi thì báo và giữ nguyên nội dung đang nhập.
+function submitAsync(task, done) {
+  task.then(() => {
+    document.getElementById('modal').close();
+    toast(done);
+    render();
+  }, err => toast(authError(err), true));
+  return false;
+}
+
+function accountFields(m) {
+  const roles = m ? ['manager', 'staff', 'blocked'] : ['staff', 'manager'];
+  return `
+    ${field('Vai trò', `<select name="role">${roles.map(r =>
+      `<option value="${r}"${m?.role === r ? ' selected' : ''}>${r === 'blocked' ? 'Khóa, không cho đăng nhập' : ROLE_LABELS[r]}</option>`).join('')}</select>`)}
+    ${field('Là nhân viên nào', `<select name="employeeId">${selectOptions(Store.pick('employees', m?.employeeId), m?.employeeId, 'Không gắn với nhân viên')}</select>`)}`;
+}
+
+function readAccountForm(form) {
+  const f = form.elements;
+  const data = { role: f.role.value, employeeId: f.employeeId.value || null };
+  if (data.role === 'staff' && !data.employeeId) {
+    toast('Tài khoản nhân viên phải gắn với một người trong danh sách nhân viên', true);
+    return null;
+  }
+  return data;
+}
+
+Actions['acc-add'] = () => openModal({
+  title: 'Thêm tài khoản',
+  body: `
+    <div class="form-grid">
+      ${field('Tên đăng nhập', '<input type="text" name="username" required pattern="[a-z0-9._\\-]{3,30}" autocapitalize="none" autocomplete="off" title="3 đến 30 ký tự: chữ thường không dấu, số, dấu chấm hoặc gạch ngang">')}
+      ${field('Mật khẩu (ít nhất 8 ký tự)', '<input type="text" name="password" required minlength="8" autocomplete="off">')}
+      ${accountFields()}
+    </div>
+    <p class="hint">Hãy ghi lại mật khẩu để đưa cho người dùng: app không xem lại được mật khẩu, và tên đăng nhập đã tạo thì không đổi được.</p>`,
+  submitLabel: 'Tạo tài khoản',
+  onSubmit: form => {
+    const data = readAccountForm(form);
+    if (!data) return false;
+    const username = form.elements.username.value;
+    return submitAsync(Cloud.createAccount({ ...data, username, password: form.elements.password.value }), `Đã tạo tài khoản ${username}`);
+  },
+});
+
+Actions['acc-edit'] = el => {
+  const m = Cloud.members().find(x => x.uid === el.dataset.uid);
+  openModal({
+    title: `Tài khoản ${m.username}`,
+    body: `
+      <div class="form-grid">${accountFields(m)}</div>
+      <p class="hint">Quên mật khẩu: khóa tài khoản này rồi tạo tài khoản mới với tên đăng nhập khác.</p>`,
+    onSubmit: form => {
+      const data = readAccountForm(form);
+      if (!data) return false;
+      return submitAsync(Cloud.updateAccount(m.uid, data), `Đã cập nhật tài khoản ${m.username}`);
+    },
+  });
+};
+
+Actions['cloud-password'] = () => openModal({
+  title: 'Đổi mật khẩu',
+  body: `
+    <div class="form-grid">
+      ${field('Mật khẩu hiện tại', '<input type="password" name="current" required autocomplete="current-password">', 'wide')}
+      ${field('Mật khẩu mới (ít nhất 8 ký tự)', '<input type="password" name="next" required minlength="8" autocomplete="new-password">', 'wide')}
+    </div>`,
+  submitLabel: 'Đổi mật khẩu',
+  onSubmit: form => submitAsync(Cloud.changePassword(form.elements.current.value, form.elements.next.value), 'Đã đổi mật khẩu'),
+});
 
 /* ---------- Nhân viên ---------- */
 
@@ -170,7 +287,7 @@ Changes['data-import'] = async el => {
   if (!file) return;
   const text = await file.text();
   el.value = '';
-  const scope = Cloud.status().email ? ' trên đám mây (mọi máy đang dùng chung)' : '';
+  const scope = Cloud.status().signedIn ? ' trên đám mây (mọi máy đang dùng chung)' : '';
   if (!(await confirmBox(`Khôi phục sẽ thay thế toàn bộ dữ liệu hiện tại${scope} bằng dữ liệu trong file. Tiếp tục?`, 'Khôi phục'))) return;
   try {
     Store.importData(text);
@@ -182,7 +299,7 @@ Changes['data-import'] = async el => {
 };
 
 Actions['data-reset'] = async () => {
-  const scope = Cloud.status().email ? ' trên đám mây, ở mọi máy đang dùng chung' : '';
+  const scope = Cloud.status().signedIn ? ' trên đám mây, ở mọi máy đang dùng chung' : '';
   if (!(await confirmBox(`Xóa toàn bộ nhân viên, dịch vụ, doanh thu và bảng lương${scope}? Không thể hoàn tác.`, 'Xóa tất cả'))) return;
   Store.reset();
   toast('Đã xóa toàn bộ dữ liệu');

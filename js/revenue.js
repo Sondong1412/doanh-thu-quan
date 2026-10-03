@@ -14,11 +14,14 @@ function groupEntries(entries, keyFn) {
 }
 
 function entryFields(e = {}) {
+  // Nhân viên chỉ nhập doanh thu cho chính mình, với % hoa hồng do chủ quán đặt sẵn.
+  const shopWide = can('seeShop');
+  const employeeId = shopWide ? e.employeeId : Cloud.myEmployee();
   return `
     ${field('Dịch vụ', `<select name="serviceId" data-change="entry-sync">${selectOptions(Store.pick('services', e.serviceId), e.serviceId, 'Khác')}</select>`)}
-    ${field('Nhân viên làm', `<select name="employeeId" data-change="entry-sync">${selectOptions(Store.pick('employees', e.employeeId), e.employeeId, 'Không có (doanh thu quán)')}</select>`)}
+    ${field('Nhân viên làm', `<select name="employeeId" data-change="entry-sync">${selectOptions(Store.pick('employees', employeeId), employeeId, shopWide ? 'Không có (doanh thu quán)' : '')}</select>`)}
     ${field('Số tiền thu của khách (₫)', `<input type="text" inputmode="numeric" class="money" name="amount" required autocomplete="off" value="${e.amount ? fmtNum(e.amount) : ''}">`)}
-    ${field('% hoa hồng nhân viên', `<input type="number" name="pct" min="0" max="100" step="any" value="${e.pct ?? 0}">`)}
+    ${field('% hoa hồng nhân viên', `<input type="number" name="pct" min="0" max="100" step="any" value="${e.pct ?? 0}"${shopWide ? '' : ' readonly'}>`)}
     ${field('Ghi chú', `<input type="text" name="note" autocomplete="off" value="${esc(e.note)}">`, 'wide')}`;
 }
 
@@ -29,11 +32,14 @@ function readEntryForm(form) {
     toast('Hãy nhập số tiền', true);
     return null;
   }
+  // Nhân viên luôn nhập cho chính mình với % đã định sẵn, bất kể form đang hiện gì.
+  const shopWide = can('seeShop');
+  const employeeId = shopWide ? f.employeeId.value || null : Cloud.myEmployee();
   return {
     serviceId: f.serviceId.value || null,
-    employeeId: f.employeeId.value || null,
+    employeeId,
     amount,
-    pct: clampPct(f.pct.value),
+    pct: shopWide ? clampPct(f.pct.value) : Store.rateFor(employeeId, f.serviceId.value),
     note: f.note.value.trim(),
   };
 }
@@ -47,17 +53,20 @@ function breakdownCards(entries) {
       <h2>Theo dịch vụ</h2>
       ${table(['Dịch vụ', 'Lượt', 'Doanh thu'], rowsOf(e => e.serviceId, Store.svcName))}
     </section>
-    <section class="card">
-      <h2>Theo nhân viên</h2>
-      ${table(['Nhân viên', 'Lượt', 'Doanh thu'], rowsOf(e => e.employeeId, id => (id ? Store.empName(id) : 'Không gắn nhân viên')))}
-    </section>`;
+    ${can('seeShop') ? `
+      <section class="card">
+        <h2>Theo nhân viên</h2>
+        ${table(['Nhân viên', 'Lượt', 'Doanh thu'], rowsOf(e => e.employeeId, id => (id ? Store.empName(id) : 'Không gắn nhân viên')))}
+      </section>` : ''}`;
 }
 
 // Tổng lương phải trả nhân viên trong tháng (mức cao hơn giữa lương cứng và hoa hồng của từng người).
 const staffPay = ym => sumBy(Store.payroll(ym), r => r.gross);
 
 // Ô "Doanh thu thực nhận" đặt cạnh ô tổng doanh thu: doanh thu trừ phần trả cho nhân viên.
+// Nhân viên chỉ thấy doanh thu của riêng mình nên không có ô này.
 function netTile(total, cost, costLabel, provisional = false) {
+  if (!can('seeShop')) return '';
   return statTile('Doanh thu thực nhận', fmtMoney(total - cost),
     `Đã trừ ${costLabel} ${fmtMoney(cost)}${provisional ? ' · tạm tính' : ''}`, total < cost ? 'neg' : '');
 }
@@ -72,7 +81,7 @@ const RevenueView = {
     const entries = Store.inPeriod('entries', date).sort((a, b) => b.createdAt - a.createdAt);
     const total = sumBy(entries, e => e.amount);
     const missing = [!Store.services().length && 'dịch vụ', !Store.employees().length && 'nhân viên'].filter(Boolean);
-    const hint = missing.length
+    const hint = missing.length && can('manage')
       ? `<p class="hint">Chưa có ${missing.join(' và ')}. <button type="button" class="link" data-action="tab" data-tab="settings">Mở Cài đặt</button> để thêm trước khi nhập doanh thu.</p>`
       : '';
     const list = entries.map(e => `
@@ -157,10 +166,12 @@ const RevenueView = {
     });
     const payTotal = sumBy(months, x => x.pay);
     const bars = months.map(x => ({ label: `T${x.m}`, value: x.g?.total ?? 0, tip: fmtMonth(x.ym), attrs: x.attrs }));
+    // Hai cột lương và thực nhận chỉ dành cho người xem được số liệu cả quán.
+    const cols = can('seeShop') ? 5 : 3;
     const rows = months.map(x => ({
-      cells: x.g || x.pay
+      cells: (x.g || x.pay
         ? [`Tháng ${x.m}`, x.g?.count ?? 0, fmtMoney(x.g?.total ?? 0), fmtMoney(x.pay), fmtMoney((x.g?.total ?? 0) - x.pay)]
-        : [`Tháng ${x.m}`, '—', '—', '—', '—'],
+        : [`Tháng ${x.m}`, '—', '—', '—', '—']).slice(0, cols),
       attrs: `class="clickable" ${x.attrs}`,
     }));
     return `
@@ -175,8 +186,8 @@ const RevenueView = {
       </section>
       <section class="card">
         <h2>Bảng doanh thu theo tháng</h2>
-        ${table(['Tháng', 'Lượt', 'Doanh thu', 'Lương nhân viên', 'Thực nhận'], rows,
-          ['Tổng', entries.length, fmtMoney(total), fmtMoney(payTotal), fmtMoney(total - payTotal)])}
+        ${table(['Tháng', 'Lượt', 'Doanh thu', 'Lương nhân viên', 'Thực nhận'].slice(0, cols), rows,
+          ['Tổng', entries.length, fmtMoney(total), fmtMoney(payTotal), fmtMoney(total - payTotal)].slice(0, cols))}
       </section>
       ${entries.length ? breakdownCards(entries) : ''}`;
   },

@@ -14,7 +14,8 @@ const ATT = {
 };
 const ATT_ORDER = [undefined, 1, 0.5, 0];
 
-const NO_EMPLOYEE = `<section class="card"><p class="empty">Chưa có nhân viên. <button type="button" class="link" data-action="tab" data-tab="settings">Mở Cài đặt</button> để thêm nhân viên.</p></section>`;
+const noEmployee = () => `<section class="card"><p class="empty">Chưa có nhân viên.${can('manage')
+  ? ' <button type="button" class="link" data-action="tab" data-tab="settings">Mở Cài đặt</button> để thêm nhân viên.' : ''}</p></section>`;
 
 const PayrollView = {
   render() {
@@ -50,7 +51,7 @@ const minus = n => (n ? `−${fmtMoney(n)}` : fmtMoney(0));
 function payrollMonth(date) {
   const ym = date.slice(0, 7);
   const rows = Store.payroll(ym);
-  if (!rows.length) return NO_EMPLOYEE;
+  if (!rows.length) return noEmployee();
   const t = payTotals(rows);
   const cards = rows.map(r => `
     <article class="card pay-card">
@@ -88,7 +89,7 @@ function payrollYear(date) {
     return { m: i + 1, ym, rows: Store.payroll(ym) };
   });
   const all = months.flatMap(x => x.rows);
-  if (!all.length) return NO_EMPLOYEE;
+  if (!all.length) return noEmployee();
   const t = payTotals(all);
 
   const monthRows = months.map(x => {
@@ -162,13 +163,14 @@ const attEmployees = prefix => Store.state.employees.filter(e => !e.deletedAt ||
 const AttendanceView = {
   day(date) {
     const emps = attEmployees(date);
-    if (!emps.length) return NO_EMPLOYEE;
+    if (!emps.length) return noEmployee();
+    const locked = can('editHr') ? '' : ' disabled';
     const entries = Store.inPeriod('entries', date);
     const list = emps.map(emp => {
       const mine = entries.filter(e => e.employeeId === emp.id);
       const cur = Store.attendanceOf(date, emp.id);
       const buttons = [1, 0.5, 0].map(v =>
-        `<button type="button" class="${cur === v ? `active ${ATT[v].cls}` : ''}" data-action="att-set" data-emp="${emp.id}" data-val="${v}">${ATT[v].sym} ${ATT[v].label}</button>`).join('');
+        `<button type="button" class="${cur === v ? `active ${ATT[v].cls}` : ''}" data-action="att-set" data-emp="${emp.id}" data-val="${v}"${locked}>${ATT[v].sym} ${ATT[v].label}</button>`).join('');
       return `
         <li class="row">
           <div class="row-main">
@@ -182,7 +184,7 @@ const AttendanceView = {
       <section class="card">
         <div class="card-head">
           <h2>Chấm công ${WEEKDAYS[weekdayOf(date)]} ${fmtDate(date)}</h2>
-          <button type="button" class="btn btn-sm" data-action="att-all">Tất cả đi làm</button>
+          ${locked ? '' : '<button type="button" class="btn btn-sm" data-action="att-all">Tất cả đi làm</button>'}
         </div>
         <ul class="rows">${list}</ul>
       </section>`;
@@ -192,7 +194,8 @@ const AttendanceView = {
     const { y, m } = parseYmd(date);
     const ym = date.slice(0, 7);
     const emps = attEmployees(ym);
-    if (!emps.length) return NO_EMPLOYEE;
+    if (!emps.length) return noEmployee();
+    const locked = can('editHr') ? '' : ' disabled';
     const days = Array.from({ length: daysInMonth(y, m) }, (_, i) => ymd(y, m, i + 1));
     const today = todayStr();
     const head = days.map(d => {
@@ -204,7 +207,7 @@ const AttendanceView = {
         <th>${esc(emp.name)}</th>
         ${days.map(d => {
           const a = ATT[Store.attendanceOf(d, emp.id)];
-          return `<td><button type="button" class="att-cell ${a?.cls ?? ''}" data-action="att-cycle" data-emp="${emp.id}" data-date="${d}" aria-label="${esc(emp.name)} ngày ${fmtDate(d)}">${a?.sym ?? ''}</button></td>`;
+          return `<td><button type="button" class="att-cell ${a?.cls ?? ''}" data-action="att-cycle" data-emp="${emp.id}" data-date="${d}" aria-label="${esc(emp.name)} ngày ${fmtDate(d)}"${locked}>${a?.sym ?? ''}</button></td>`;
         }).join('')}
         <td class="att-total">${fmtDays(Store.workDays(emp.id, ym))}</td>
       </tr>`).join('');
@@ -215,14 +218,16 @@ const AttendanceView = {
           <thead><tr><th>Nhân viên</th>${head}<th>Công</th></tr></thead>
           <tbody>${body}</tbody>
         </table></div>
-        <p class="hint">Bấm vào ô để đổi lần lượt: ✓ đi làm → ½ nửa ngày → ✗ nghỉ → trống (chưa chấm).</p>
+        <p class="hint">${locked
+          ? '✓ đi làm · ½ nửa ngày · ✗ nghỉ · trống là chưa chấm.'
+          : 'Bấm vào ô để đổi lần lượt: ✓ đi làm → ½ nửa ngày → ✗ nghỉ → trống (chưa chấm).'}</p>
       </section>`;
   },
 
   year(date) {
     const year = date.slice(0, 4);
     const emps = attEmployees(year);
-    if (!emps.length) return NO_EMPLOYEE;
+    if (!emps.length) return noEmployee();
     const rows = emps.map(emp => {
       const perMonth = Array.from({ length: 12 }, (_, i) => Store.workDays(emp.id, `${year}-${pad2(i + 1)}`));
       return { cells: [esc(emp.name), ...perMonth.map(n => (n ? fmtDays(n) : '—')), `<strong>${fmtDays(sumBy(perMonth, n => n))}</strong>`] };
@@ -290,10 +295,11 @@ function readDeductionForm(form) {
 function deductionView(type, date) {
   const ym = date.slice(0, 7);
   const cfg = DEDUCTIONS[type];
-  if (!Store.state.employees.length) return NO_EMPLOYEE;
+  if (!Store.state.employees.length) return noEmployee();
   const list = Store.inPeriod('deductions', ym).filter(d => d.type === type)
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
   const today = todayStr();
+  const editable = can('editHr');
   const rows = list.map(d => `
     <li class="row">
       <div class="row-main">
@@ -301,22 +307,24 @@ function deductionView(type, date) {
         <span class="sub">${fmtDate(d.date)}${d.product ? ` · ${esc(d.product)}` : ''}${d.note ? ` · ${esc(d.note)}` : ''}</span>
       </div>
       <div class="row-amount">${fmtMoney(d.amount)}</div>
-      <div class="row-actions">
-        <button type="button" class="btn btn-sm" data-action="ded-edit" data-id="${d.id}">Sửa</button>
-        <button type="button" class="btn btn-sm danger" data-action="ded-delete" data-id="${d.id}">Xóa</button>
-      </div>
+      ${editable ? `
+        <div class="row-actions">
+          <button type="button" class="btn btn-sm" data-action="ded-edit" data-id="${d.id}">Sửa</button>
+          <button type="button" class="btn btn-sm danger" data-action="ded-delete" data-id="${d.id}">Xóa</button>
+        </div>` : ''}
     </li>`).join('');
   return `
     <section class="stats">
       ${statTile(`${cfg.title} ${fmtMonth(ym).toLowerCase()}`, fmtMoney(sumBy(list, d => d.amount)), `${list.length} khoản · trừ thẳng vào lương tháng`)}
     </section>
-    <section class="card">
-      <h2>${cfg.add}</h2>
-      <form class="form-grid" data-submit="ded-add" data-type="${type}">
-        ${deductionFields(type, { date: today.startsWith(ym) ? today : `${ym}-01` })}
-        <div class="form-actions"><button type="submit" class="btn btn-primary">${cfg.add}</button></div>
-      </form>
-    </section>
+    ${editable ? `
+      <section class="card">
+        <h2>${cfg.add}</h2>
+        <form class="form-grid" data-submit="ded-add" data-type="${type}">
+          ${deductionFields(type, { date: today.startsWith(ym) ? today : `${ym}-01` })}
+          <div class="form-actions"><button type="submit" class="btn btn-primary">${cfg.add}</button></div>
+        </form>
+      </section>` : ''}
     <section class="card">
       <h2>Danh sách trong tháng</h2>
       ${list.length ? `<ul class="rows">${rows}</ul>` : `<p class="empty">${cfg.empty}</p>`}

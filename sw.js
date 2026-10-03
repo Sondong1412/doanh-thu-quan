@@ -17,7 +17,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
-const fetchAndStore = request => fetch(request).then(res => {
+const fetchAndStore = (request, init) => fetch(init ? request.url : request, init).then(res => {
   const copy = res.clone();
   caches.open(CACHE).then(cache => cache.put(request, copy));
   return res;
@@ -31,7 +31,8 @@ self.addEventListener('fetch', e => {
     e.respondWith(caches.match(request).then(hit => hit || fetchAndStore(request)));
   } else if (new URL(request.url).origin === location.origin) {
     // File của app: ưu tiên bản mới từ mạng, mất mạng thì dùng bản đã lưu.
-    e.respondWith(fetchAndStore(request).catch(() => caches.match(request)));
+    // 'no-cache' buộc hỏi lại máy chủ để các file luôn cùng một phiên bản sau mỗi lần cập nhật app.
+    e.respondWith(fetchAndStore(request, { cache: 'no-cache' }).catch(() => caches.match(request)));
   }
   // Các kết nối khác (đăng nhập, Firestore) đi thẳng ra mạng, không lưu lại.
 });

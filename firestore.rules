@@ -1,10 +1,13 @@
 // Quy tắc bảo mật Firestore cho app Doanh Thu Quán.
 // Dán nội dung này vào Firebase Console > Firestore Database > Rules,
-// thay địa chỉ bên dưới bằng các tài khoản Google được phép xem và nhập số liệu.
+// thay địa chỉ bên dưới bằng Gmail của chủ quán (viết toàn chữ thường).
+//
+// Chủ quán: tài khoản Google có trong danh sách dưới đây, toàn quyền.
+// Quản lý, nhân viên: tài khoản tên đăng nhập + mật khẩu do chủ quán tạo trong app; vai trò nằm ở members/{uid}.
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function allowed() {
+    function isOwner() {
       return request.auth != null
         && request.auth.token.email_verified
         && request.auth.token.email in [
@@ -12,8 +15,71 @@ service cloud.firestore {
         ];
     }
 
-    match /shops/{shopId}/{document=**} {
-      allow read, write: if allowed();
+    function memberPath() {
+      return /databases/$(database)/documents/shops/main/members/$(request.auth.uid);
+    }
+
+    function role() {
+      return request.auth != null && exists(memberPath()) ? get(memberPath()).data.role : 'none';
+    }
+
+    function myEmployee() {
+      return get(memberPath()).data.employeeId;
+    }
+
+    function isManager() {
+      return isOwner() || role() == 'manager';
+    }
+
+    function isStaff() {
+      return role() == 'staff';
+    }
+
+    match /shops/main {
+      // Tài khoản và vai trò: chỉ chủ quán quản lý; mỗi người đọc được dòng của chính mình.
+      match /members/{uid} {
+        allow read: if isOwner() || (request.auth != null && request.auth.uid == uid);
+        allow write: if isOwner();
+      }
+
+      match /meta/services {
+        allow read: if isManager() || isStaff();
+        allow write: if isOwner();
+      }
+
+      // Hồ sơ nhân viên có lương cứng: nhân viên chỉ đọc được hồ sơ của mình.
+      match /employees/{employeeId} {
+        allow read: if isManager() || (isStaff() && myEmployee() == employeeId);
+        allow write: if isOwner();
+      }
+
+      // Doanh thu, mỗi tài liệu là một ngày của một nhân viên: nhân viên chỉ đọc và ghi phần của mình.
+      match /sales/{docId} {
+        allow read: if isManager() || (isStaff() && resource.data.employeeId == myEmployee());
+        allow create: if isManager() || (isStaff()
+          && request.resource.data.employeeId == myEmployee()
+          && docId == request.resource.data.date + '_' + myEmployee());
+        allow update: if isManager() || (isStaff()
+          && resource.data.employeeId == myEmployee()
+          && request.resource.data.employeeId == resource.data.employeeId
+          && request.resource.data.date == resource.data.date);
+        allow delete: if isOwner();
+      }
+
+      // Chấm công, ứng lương, mua sản phẩm: nhân viên chỉ xem phần của mình, không sửa được.
+      match /hr/{docId} {
+        allow read: if isManager() || (isStaff() && resource.data.employeeId == myEmployee());
+        allow create, update: if isManager();
+        allow delete: if isOwner();
+      }
+
+      // Dữ liệu lưu theo cấu trúc cũ (giữ làm dự phòng): chỉ chủ quán đọc được, app đánh dấu đã chuyển vào meta/catalog.
+      match /meta/catalog {
+        allow read, write: if isOwner();
+      }
+      match /days/{date} {
+        allow read, delete: if isOwner();
+      }
     }
   }
 }
