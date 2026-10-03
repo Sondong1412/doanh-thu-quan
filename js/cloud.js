@@ -6,7 +6,7 @@
 //   shops/main/meta/services             { items: { id: dịch vụ } }
 //   shops/main/meta/settings             tùy chọn chung của quán (nhập tiền rút gọn…)
 //   shops/main/employees/{id}            nhân viên (tên, lương cứng, % riêng)
-//   shops/main/sales/{ngày}_{nhân viên}  { date, employeeId, entries: { id: khoản doanh thu } }   (không gắn nhân viên: {ngày}_shop)
+//   shops/main/sales/{ngày}_{nhân viên}  { date, month, employeeId, entries: { id: khoản doanh thu } }   (không gắn nhân viên: {ngày}_shop)
 //   shops/main/hr/{tháng}_{nhân viên}    { month, employeeId, deductions: { id: … }, attendance: { 'DD': 1 | 0.5 | 0 } }
 //   shops/main/members/{uid}             { username, role: 'manager' | 'staff' | 'blocked', employeeId, password }
 //                                        (mật khẩu lưu ở dạng đọc được để chủ quán, quản lý xem lại theo yêu cầu của quán)
@@ -30,8 +30,8 @@ const Cloud = (() => {
   let servicesKey = '';
   let settings = {};
   const employees = new Map();
-  const sales = new Map();
-  const hr = new Map();
+  const loadedSales = new Map();   // chỉ gồm các kỳ đã mở xem
+  const loadedHr = new Map();
   let members = [];
   let local = null;           // bản dữ liệu trên máy tại lúc đăng nhập, dùng khi chủ quán đưa lên đám mây lần đầu
   let stops = [];
@@ -100,7 +100,7 @@ const Cloud = (() => {
 
   /* ---------- Nhận dữ liệu ---------- */
 
-  function buildState() {
+  function buildState(sales = loadedSales, hr = loadedHr) {
     const byId = list => list.sort((a, b) => (a.id < b.id ? -1 : 1));
     const state = { employees: byId([...employees.values()]), services: byId(Object.values(services)), entries: [], deductions: [], attendance: {}, settings };
     for (const doc of sales.values()) state.entries.push(...Object.values(doc.entries ?? {}));
@@ -144,14 +144,36 @@ const Cloud = (() => {
     return changes.length > 0;
   };
 
-  // Chủ quán và quản lý chỉ nghe kỳ đang xem ('YYYY' hoặc 'YYYY-MM') để không phải tải toàn bộ lịch sử mỗi lần mở app.
+  // Doanh thu của chủ quán, quản lý: tài liệu thiếu trường `month` (ghi bởi bản app cũ) được bổ sung ngay khi thấy,
+  // vì nhân viên tìm doanh thu của mình theo trường đó.
+  const intoSales = snap => {
+    if (role !== 'staff') {
+      for (const c of snap.docChanges()) {
+        const data = c.doc.data();
+        if (c.type !== 'removed' && !data.month && data.date) {
+          c.doc.ref.set({ month: data.date.slice(0, 7) }, { mergeFields: ['month'] }).catch(() => {});
+        }
+      }
+    }
+    return intoMap(loadedSales)(snap);
+  };
+
+  // Chỉ nghe kỳ đang xem ('YYYY' hoặc 'YYYY-MM') để mỗi lần mở app không phải tải toàn bộ lịch sử:
+  // lượng tải không tăng theo số năm dùng app.
   function need(period) {
-    if (!role || role === 'staff' || periods.has(period) || periods.has(period.slice(0, 4))) return [];
+    if (!role || periods.has(period) || periods.has(period.slice(0, 4))) return [];
     periods.add(period);
     const [from, to] = period.length === 4 ? [`${period}-01`, `${period}-12`] : [period, period];
+    if (role === 'staff') {
+      // Nhân viên chỉ được đọc phần của mình. Lọc bằng hai điều kiện "bằng" (nhân viên + tháng) thì Firestore
+      // không đòi tạo chỉ mục riêng, nên cả năm là 12 truy vấn theo tháng.
+      const months = period.length === 4 ? Array.from({ length: 12 }, (_, i) => `${period}-${pad2(i + 1)}`) : [period];
+      return months.filter(m => m === period || !periods.has(m)).map(m =>
+        listen(`sales ${m}`, salesRef.where('employeeId', '==', myEmployee).where('month', '==', m), intoSales));
+    }
     return [
-      listen(`sales ${period}`, salesRef.where('date', '>=', `${from}-01`).where('date', '<=', `${to}-31`), intoMap(sales)),
-      listen(`hr ${period}`, hrRef.where('month', '>=', from).where('month', '<=', to), intoMap(hr)),
+      listen(`sales ${period}`, salesRef.where('date', '>=', `${from}-01`).where('date', '<=', `${to}-31`), intoSales),
+      listen(`hr ${period}`, hrRef.where('month', '>=', from).where('month', '<=', to), intoMap(loadedHr)),
     ];
   }
 
@@ -226,8 +248,9 @@ const Cloud = (() => {
           else employees.delete(snap.id);
           return JSON.stringify(employees.get(snap.id)) !== before;
         }),
-        listen('sales', salesRef.where('employeeId', '==', myEmployee), intoMap(sales)),
-        listen('hr', hrRef.where('employeeId', '==', myEmployee), intoMap(hr)),
+        // Chấm công và khoản trừ của một người chỉ có 12 tài liệu mỗi năm nên tải hết; doanh thu thì theo tháng đang xem.
+        listen('hr', hrRef.where('employeeId', '==', myEmployee), intoMap(loadedHr)),
+        ...need(todayStr().slice(0, 7)),
       );
     } else {
       base.push(listen('employees', employeesRef, intoMap(employees)), ...need(todayStr().slice(0, 7)));
@@ -255,7 +278,7 @@ const Cloud = (() => {
     services = {};
     servicesKey = '';
     settings = {};
-    for (const map of [employees, sales, hr, unsent]) map.clear();
+    for (const map of [employees, loadedSales, loadedHr, unsent]) map.clear();
     periods.clear();
     waiting.clear();
     members = [];
@@ -316,7 +339,7 @@ const Cloud = (() => {
       if (value) batch.set(employeesRef.doc(id), value);
       else batch.delete(employeesRef.doc(id));
     } else if (change.record === 'entries') {
-      const head = x => ({ date: x.date, employeeId: x.employeeId ?? null });
+      const head = x => ({ date: x.date, month: x.date.slice(0, 7), employeeId: x.employeeId ?? null });
       if (prev && (!value || saleKey(prev) !== saleKey(value))) setField(batch, salesRef.doc(saleKey(prev)), head(prev), 'entries', id);
       if (value) setField(batch, salesRef.doc(saleKey(value)), head(value), 'entries', id, value);
     } else if (change.record === 'deductions') {
@@ -345,7 +368,7 @@ const Cloud = (() => {
     };
     for (const e of state.entries) {
       const key = saleKey(e);
-      const doc = nextSales.get(key) ?? nextSales.set(key, { date: e.date, employeeId: e.employeeId ?? null, entries: {} }).get(key);
+      const doc = nextSales.get(key) ?? nextSales.set(key, { date: e.date, month: e.date.slice(0, 7), employeeId: e.employeeId ?? null, entries: {} }).get(key);
       doc.entries[e.id] = e;
     }
     for (const d of state.deductions) hrDoc(d.date.slice(0, 7), d.employeeId).deductions[d.id] = d;
@@ -371,6 +394,13 @@ const Cloud = (() => {
     await Promise.all(commits);
     // Ghi riêng để một quy tắc Firestore bản cũ (chưa có mục settings) không làm hỏng cả lần thay dữ liệu.
     settingsRef.set(state.settings ?? {}).catch(() => {});
+  }
+
+  // File sao lưu phải chứa toàn bộ dữ liệu của quán, kể cả những tháng chưa mở xem trên máy này.
+  async function exportData() {
+    const [allSales, allHr] = await Promise.all([salesRef.get(SERVER), hrRef.get(SERVER)]);
+    const toMap = snap => new Map(snap.docs.map(d => [d.id, d.data()]));
+    return Store.exportData(buildState(toMap(allSales), toMap(allHr)));
   }
 
   const hasData = s => s.employees.length || s.services.length || s.entries.length || s.deductions.length || Object.keys(s.attendance).length;
@@ -476,7 +506,7 @@ const Cloud = (() => {
 
   return {
     set onStatus(fn) { onStatus = fn; },
-    start, need, signIn, signInPassword, signOut, createAccount, updateAccount, deleteAccount, changePassword, status,
+    start, need, exportData, signIn, signInPassword, signOut, createAccount, updateAccount, deleteAccount, changePassword, status,
     members: () => members,
     // Khi không đăng nhập đồng bộ (dữ liệu riêng trên máy) thì người dùng có toàn quyền như chủ quán.
     // Đã đăng nhập mà chưa biết vai trò thì tạm coi là quyền thấp nhất.

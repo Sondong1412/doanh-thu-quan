@@ -584,3 +584,25 @@ body.locked .tabs, body.locked .settings-btn { display: none; }
   .row-side { flex-direction: column; align-items: flex-end; }
   .pick-head input { width: 130px; }
 }
+
+/* ---------- Hóa đơn nhiều dịch vụ ---------- */
+
+.bill {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.bill-total { display: flex; justify-content: space-between; font-weight: 600; padding-top: 8px; border-top: 1px solid var(--line); }
+.bill-total strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+
+.bill-group { padding: 10px 0; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.bill-group:first-child { border-top: 0; padding-top: 0; }
+.bill-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.bill-group > .rows { padding-left: 12px; border-left: 3px solid var(--accent-soft); }
+.bill-group + .row { border-top: 1px solid var(--line); padding-top: 10px; }
+
+.form-actions { flex-wrap: wrap; gap: 8px; }

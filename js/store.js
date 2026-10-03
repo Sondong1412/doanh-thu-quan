@@ -4,7 +4,8 @@
 // state = {
 //   employees:  [{ id, name, salary: [{ from: 'YYYY-MM', amount }], rates: { serviceId: % }, createdAt, deletedAt? }]
 //   services:   [{ id, name, price, pct, deletedAt? }]
-//   entries:    [{ id, date, serviceId, employeeId, amount, pct, note, createdAt }]   // doanh thu từ khách
+//   entries:    [{ id, date, serviceId, employeeId, amount, pct, note, createdAt, billId? }]   // doanh thu từ khách;
+//               các khoản khách trả chung một lần mang cùng billId
 //   deductions: [{ id, type: 'advance' | 'purchase', date, employeeId, amount, product?, note }]
 //   attendance: { 'YYYY-MM-DD': { employeeId: 1 | 0.5 | 0 } }
 //   settings:   { shorthand }   // tùy chọn chung của quán; shorthand = nhập tiền rút gọn theo nghìn
@@ -187,6 +188,14 @@ const Store = (() => {
     commit({ record: kind, id: item.id, value: item });
   }
 
+  // Một hóa đơn nhiều dịch vụ: mỗi dòng vẫn là một khoản doanh thu riêng (để tính lương từng người),
+  // các dòng mang chung mã hóa đơn và giữ đúng thứ tự nhập.
+  function addBill(lines) {
+    const billId = lines.length > 1 ? uid() : undefined;
+    const now = Date.now();
+    lines.forEach((line, i) => add('entries', { ...line, createdAt: now + i, ...(billId && { billId }) }));
+  }
+
   function update(kind, id, data) {
     const item = byId(state[kind], id);
     const prev = { date: item.date, employeeId: item.employeeId };
@@ -265,7 +274,7 @@ const Store = (() => {
 
   /* ---------- Sao lưu ---------- */
 
-  const exportData = () => JSON.stringify({ app: DB_NAME, exportedAt: new Date().toISOString(), state }, null, 1);
+  const exportData = (data = state) => JSON.stringify({ app: DB_NAME, exportedAt: new Date().toISOString(), state: data }, null, 1);
 
   function importData(json) {
     const data = JSON.parse(json);
@@ -293,7 +302,7 @@ const Store = (() => {
     set onChange(fn) { onChange = fn; },
     load, attachRemote, adopt, detachRemote, employees, services, pick, employee, service, empName, svcName,
     baseSalaryFor, saveEmployee, saveService, removeItem, rateFor,
-    add, update, remove, get, inPeriod, commissionOf,
+    add, addBill, update, remove, get, inPeriod, commissionOf,
     attendanceOf, setAttendance, workDays, payroll, settings, setSetting,
     exportData, importData, reset, minYear,
   };

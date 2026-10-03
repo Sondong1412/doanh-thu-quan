@@ -1,13 +1,18 @@
 // Tab "Doanh thu quán": nhập doanh thu hàng ngày, tổng hợp theo ngày / tháng / năm.
 
-// Gom nhóm doanh thu theo khóa -> Map(key => { count, total })
+// Các khoản khách trả chung một lần mang cùng mã hóa đơn; khoản lẻ tự là một hóa đơn.
+const billKey = e => e.billId ?? e.id;
+const customerCount = entries => new Set(entries.map(billKey)).size;
+
+// Gom nhóm doanh thu theo khóa -> Map(key => { count, total, entries }); count là số dịch vụ đã làm.
 function groupEntries(entries, keyFn) {
   const groups = new Map();
   for (const e of entries) {
     const key = keyFn(e);
-    const g = groups.get(key) ?? { count: 0, total: 0 };
+    const g = groups.get(key) ?? { count: 0, total: 0, entries: [] };
     g.count++;
     g.total += e.amount;
+    g.entries.push(e);
     groups.set(key, g);
   }
   return groups;
@@ -30,7 +35,8 @@ function entryFields(e = {}) {
 
 // Lựa chọn đang bấm dở, giữ qua các lần vẽ lại màn hình. Rỗng là chưa chọn;
 // 'shop' là "không gắn nhân viên", 'other' là dịch vụ "Khác".
-const quick = { employeeId: '', serviceId: '', filter: '' };
+// `lines` là các dịch vụ đã thêm vào hóa đơn đang nhập mà chưa lưu.
+const quick = { employeeId: '', serviceId: '', filter: '', lines: [] };
 const pickedId = value => (value === 'shop' || value === 'other' ? null : value || null);
 
 // Bỏ dấu tiếng Việt để tìm tên không cần gõ dấu.
@@ -70,6 +76,7 @@ function quickEntryForm(date) {
   const sorted = [...employees].sort((a, b) => absent(a) - absent(b));
   return `
     <form class="quick" data-submit="entry-add">
+      ${pendingBill()}
       <input type="hidden" name="employeeId" value="${quick.employeeId}">
       <input type="hidden" name="serviceId" value="${quick.serviceId}">
       ${shopWide ? `
@@ -88,17 +95,85 @@ function quickEntryForm(date) {
         <div class="field wide">
           <span>Số tiền thu của khách (${moneyUnit()})</span>
           <div class="amount-row">
-            ${moneyInput('amount', Store.service(serviceId)?.price, true)}
+            ${moneyInput('amount', Store.service(serviceId)?.price)}
             ${shorthand() ? '' : '<button type="button" class="btn" data-action="quick-000" title="Thêm ba số 0">000</button>'}
           </div>
           <div class="chips" data-suggest>${suggestionChips(serviceId)}</div>
         </div>
         ${field('% hoa hồng', `<input type="number" name="pct" min="0" max="100" step="any" value="${employeeId ? Store.rateFor(employeeId, serviceId) : 0}"${shopWide ? '' : ' readonly'}>`)}
         ${field('Ghi chú', '<input type="text" name="note" autocomplete="off">')}
-        <div class="form-actions"><button type="submit" class="btn btn-primary">Thêm doanh thu</button></div>
+        <div class="form-actions">
+          <button type="button" class="btn" data-action="bill-add" title="Khách này còn dịch vụ khác: thêm dòng này vào hóa đơn rồi nhập dòng tiếp theo">+ Dịch vụ khác cùng khách</button>
+          <button type="submit" class="btn btn-primary">${quick.lines.length ? 'Lưu hóa đơn' : 'Thêm doanh thu'}</button>
+        </div>
       </div>
     </form>`;
 }
+
+// Hóa đơn đang nhập dở: các dịch vụ đã thêm và tổng tiền khách phải trả.
+function pendingBill() {
+  if (!quick.lines.length) return '';
+  const rows = quick.lines.map((line, i) => `
+    <li class="row tight">
+      <div class="row-main">
+        <strong>${esc(Store.svcName(line.serviceId))}</strong>
+        <span class="sub">${line.employeeId ? esc(Store.empName(line.employeeId)) : 'Không gắn nhân viên'}${line.note ? ` · ${esc(line.note)}` : ''}</span>
+      </div>
+      <div class="row-side">
+        <div class="row-amount">${fmtMoney(line.amount)}</div>
+        <div class="row-actions"><button type="button" class="btn btn-sm danger" data-action="bill-remove" data-index="${i}">Bỏ</button></div>
+      </div>
+    </li>`).join('');
+  return `
+    <div class="bill">
+      <div class="card-head">
+        <h3>Hóa đơn đang nhập · ${quick.lines.length} dịch vụ</h3>
+        <button type="button" class="link" data-action="bill-clear">Hủy hóa đơn</button>
+      </div>
+      <ul class="rows">${rows}</ul>
+      <p class="bill-total">Khách trả <strong>${fmtMoney(sumBy(quick.lines, l => l.amount))}</strong></p>
+      <p class="hint">Chọn tiếp dịch vụ bên dưới rồi bấm "Lưu hóa đơn", hoặc bấm "Lưu hóa đơn" ngay nếu đã đủ.</p>
+    </div>`;
+}
+
+// Đọc dòng đang chọn trong form nhập nhanh; thiếu gì thì báo và trả về null.
+function readQuickLine(form) {
+  const f = form.elements;
+  if (can('seeShop') && !f.employeeId.value) {
+    toast('Hãy bấm chọn nhân viên làm (hoặc "Không gắn nhân viên")', true);
+    return null;
+  }
+  if (!f.serviceId.value) {
+    toast('Hãy bấm chọn dịch vụ (hoặc "Khác")', true);
+    return null;
+  }
+  return readEntryForm(form);
+}
+
+// Mỗi dòng chọn lại từ đầu để không ghi nhầm cho người vừa chọn trước đó.
+function resetQuickPick() {
+  quick.serviceId = '';
+  if (can('seeShop')) quick.employeeId = '';
+  quick.filter = '';
+}
+
+Actions['bill-add'] = el => {
+  const line = readQuickLine(el.form);
+  if (!line) return;
+  quick.lines.push(line);
+  resetQuickPick();
+  render();
+};
+
+Actions['bill-remove'] = el => {
+  quick.lines.splice(Number(el.dataset.index), 1);
+  render(true);
+};
+
+Actions['bill-clear'] = () => {
+  quick.lines = [];
+  render(true);
+};
 
 // Chọn dịch vụ / nhân viên thì tự điền giá và % hoa hồng tương ứng.
 function syncEntryForm(form, changed) {
@@ -160,12 +235,12 @@ function breakdownCards(entries) {
   return `
     <section class="card">
       <h2>Theo dịch vụ</h2>
-      ${table(['Dịch vụ', 'Lượt', 'Doanh thu'], rowsOf(e => e.serviceId, Store.svcName))}
+      ${table(['Dịch vụ', 'Lượt làm', 'Doanh thu'], rowsOf(e => e.serviceId, Store.svcName))}
     </section>
     ${can('seeShop') ? `
       <section class="card">
         <h2>Theo nhân viên</h2>
-        ${table(['Nhân viên', 'Lượt', 'Doanh thu'], rowsOf(e => e.employeeId, id => (id ? Store.empName(id) : 'Không gắn nhân viên')))}
+        ${table(['Nhân viên', 'Lượt làm', 'Doanh thu'], rowsOf(e => e.employeeId, id => (id ? Store.empName(id) : 'Không gắn nhân viên')))}
       </section>` : ''}`;
 }
 
@@ -193,7 +268,7 @@ const RevenueView = {
     const hint = missing.length && can('manage')
       ? `<p class="hint">Chưa có ${missing.join(' và ')}. <button type="button" class="link" data-action="tab" data-tab="settings">Mở Cài đặt</button> để thêm trước khi nhập doanh thu.</p>`
       : '';
-    const list = entries.map(e => `
+    const entryRow = e => `
       <li class="row tight">
         <div class="row-main">
           <strong>${esc(Store.svcName(e.serviceId))}</strong>
@@ -208,10 +283,16 @@ const RevenueView = {
             <button type="button" class="btn btn-sm danger" data-action="entry-delete" data-id="${e.id}">Xóa</button>
           </div>
         </div>
-      </li>`).join('');
+      </li>`;
+    // Hóa đơn nhiều dịch vụ hiện thành một nhóm có tổng tiền; trong nhóm giữ thứ tự nhập.
+    const list = [...groupEntries(entries, billKey).values()].map(bill => (bill.count === 1 ? entryRow(bill.entries[0]) : `
+      <li class="bill-group">
+        <div class="bill-head"><strong>Hóa đơn ${bill.count} dịch vụ</strong><span class="row-amount">${fmtMoney(bill.total)}</span></div>
+        <ul class="rows">${bill.entries.sort((a, b) => a.createdAt - b.createdAt).map(entryRow).join('')}</ul>
+      </li>`)).join('');
     return `
       <section class="stats">
-        ${statTile('Tổng doanh thu ngày', fmtMoney(total), `${WEEKDAYS[weekdayOf(date)]} ${fmtDate(date)} · ${entries.length} lượt khách`)}
+        ${statTile('Tổng doanh thu ngày', fmtMoney(total), `${WEEKDAYS[weekdayOf(date)]} ${fmtDate(date)} · ${customerCount(entries)} lượt khách`)}
         ${netTile(total, sumBy(entries, Store.commissionOf), 'hoa hồng nhân viên')}
       </section>
       <section class="card">
@@ -242,12 +323,12 @@ const RevenueView = {
       };
     });
     const dayRows = [...byDay].sort((a, b) => a[0].localeCompare(b[0])).map(([d, g]) => ({
-      cells: [`${WEEKDAYS[weekdayOf(d)]} ${fmtDate(d)}`, g.count, fmtMoney(g.total)],
+      cells: [`${WEEKDAYS[weekdayOf(d)]} ${fmtDate(d)}`, customerCount(g.entries), fmtMoney(g.total)],
       attrs: `class="clickable" ${gotoDay(d)}`,
     }));
     return `
       <section class="stats">
-        ${statTile('Tổng doanh thu tháng', fmtMoney(total), `${fmtMonth(date)} · ${entries.length} lượt khách`)}
+        ${statTile('Tổng doanh thu tháng', fmtMoney(total), `${fmtMonth(date)} · ${customerCount(entries)} lượt khách`)}
         ${netTile(total, staffPay(ym), 'lương nhân viên', ym === todayStr().slice(0, 7))}
         ${statTile('Trung bình mỗi ngày có khách', fmtMoney(byDay.size ? total / byDay.size : 0), `${byDay.size} ngày có doanh thu`)}
       </section>
@@ -258,7 +339,7 @@ const RevenueView = {
       ${entries.length ? `
         <section class="card">
           <h2>Bảng doanh thu theo ngày</h2>
-          ${table(['Ngày', 'Lượt', 'Doanh thu'], dayRows, ['Tổng', entries.length, fmtMoney(total)])}
+          ${table(['Ngày', 'Lượt khách', 'Doanh thu'], dayRows, ['Tổng', customerCount(entries), fmtMoney(total)])}
         </section>
         ${breakdownCards(entries)}` : ''}`;
   },
@@ -278,13 +359,13 @@ const RevenueView = {
     const cols = can('seeShop') ? 5 : 3;
     const rows = months.map(x => ({
       cells: (x.g || x.pay
-        ? [`Tháng ${x.m}`, x.g?.count ?? 0, fmtMoney(x.g?.total ?? 0), fmtMoney(x.pay), fmtMoney((x.g?.total ?? 0) - x.pay)]
+        ? [`Tháng ${x.m}`, customerCount(x.g?.entries ?? []), fmtMoney(x.g?.total ?? 0), fmtMoney(x.pay), fmtMoney((x.g?.total ?? 0) - x.pay)]
         : [`Tháng ${x.m}`, '—', '—', '—', '—']).slice(0, cols),
       attrs: `class="clickable" ${x.attrs}`,
     }));
     return `
       <section class="stats">
-        ${statTile('Tổng doanh thu năm', fmtMoney(total), `Năm ${y} · ${entries.length} lượt khách`)}
+        ${statTile('Tổng doanh thu năm', fmtMoney(total), `Năm ${y} · ${customerCount(entries)} lượt khách`)}
         ${netTile(total, payTotal, 'lương nhân viên', y === new Date().getFullYear())}
         ${statTile('Trung bình mỗi tháng có khách', fmtMoney(byMonth.size ? total / byMonth.size : 0), `${byMonth.size} tháng có doanh thu`)}
       </section>
@@ -294,8 +375,8 @@ const RevenueView = {
       </section>
       <section class="card">
         <h2>Bảng doanh thu theo tháng</h2>
-        ${table(['Tháng', 'Lượt', 'Doanh thu', 'Lương nhân viên', 'Thực nhận'].slice(0, cols), rows,
-          ['Tổng', entries.length, fmtMoney(total), fmtMoney(payTotal), fmtMoney(total - payTotal)].slice(0, cols))}
+        ${table(['Tháng', 'Lượt khách', 'Doanh thu', 'Lương nhân viên', 'Thực nhận'].slice(0, cols), rows,
+          ['Tổng', customerCount(entries), fmtMoney(total), fmtMoney(payTotal), fmtMoney(total - payTotal)].slice(0, cols))}
       </section>
       ${entries.length ? breakdownCards(entries) : ''}`;
   },
@@ -303,22 +384,19 @@ const RevenueView = {
 
 Submits['entry-add'] = form => {
   const f = form.elements;
-  if (can('seeShop') && !f.employeeId.value) {
-    toast('Hãy bấm chọn nhân viên làm (hoặc "Không gắn nhân viên")', true);
-    return;
+  // Đang có hóa đơn dở mà form bên dưới để trống: lưu các dòng đã thêm. Ngược lại dòng đang chọn là dòng cuối của hóa đơn.
+  const blank = !f.serviceId.value && !f.amount.value;
+  const lines = [...quick.lines];
+  if (!lines.length || !blank) {
+    const line = readQuickLine(form);
+    if (!line) return;
+    lines.push(line);
   }
-  if (!f.serviceId.value) {
-    toast('Hãy bấm chọn dịch vụ (hoặc "Khác")', true);
-    return;
-  }
-  const data = readEntryForm(form);
-  if (!data) return;
-  Store.add('entries', { ...data, date: UI.revenue.date });
-  // Mỗi lượt khách chọn lại từ đầu để không ghi nhầm cho người vừa chọn trước đó.
-  quick.serviceId = '';
-  if (can('seeShop')) quick.employeeId = '';
-  quick.filter = '';
-  toast(`Đã thêm ${fmtMoney(data.amount)}`);
+  Store.addBill(lines.map(line => ({ ...line, date: UI.revenue.date })));
+  quick.lines = [];
+  resetQuickPick();
+  const total = fmtMoney(sumBy(lines, l => l.amount));
+  toast(lines.length > 1 ? `Đã lưu hóa đơn ${lines.length} dịch vụ, ${total}` : `Đã thêm ${total}`);
   render();
 };
 

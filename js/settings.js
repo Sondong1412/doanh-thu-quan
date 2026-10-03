@@ -315,9 +315,16 @@ Actions['svc-delete'] = async el => {
 
 /* ---------- Sao lưu ---------- */
 
-Actions['data-export'] = () => {
+Actions['data-export'] = async () => {
+  let json;
+  try {
+    json = Cloud.status().signedIn ? await Cloud.exportData() : Store.exportData();
+  } catch {
+    toast('Cần có mạng để sao lưu toàn bộ dữ liệu trên đám mây', true);
+    return;
+  }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([Store.exportData()], { type: 'application/json' }));
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
   a.download = `doanh-thu-quan-${todayStr()}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
