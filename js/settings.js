@@ -33,7 +33,7 @@ function accountsCard() {
   const owner = can('manage');
   const rows = Cloud.members().map(m => {
     const shown = revealed.has(m.uid);
-    const password = !m.password ? 'chưa lưu' : shown ? `<code>${esc(m.password)}</code>` : '••••••••';
+    const password = !m.password ? 'chưa lưu (tài khoản tạo trước khi có tính năng xem mật khẩu)' : shown ? `<code>${esc(m.password)}</code>` : '••••••••';
     return `
       <li class="row">
         <div class="row-main">
@@ -197,7 +197,9 @@ Actions['acc-edit'] = el => {
     title: `Tài khoản ${m.username}`,
     body: `
       <div class="form-grid">${accountFields(m)}</div>
-      <p class="hint">Quên mật khẩu: bấm "Xem mật khẩu" ở danh sách tài khoản.</p>`,
+      <p class="hint">${m.password
+        ? 'Quên mật khẩu: đóng hộp này rồi bấm nút "Xem mật khẩu" cạnh tài khoản trong mục Tài khoản đăng nhập.'
+        : 'Tài khoản này được tạo trước khi app lưu mật khẩu nên chưa xem lại được. Khi người dùng tự đổi mật khẩu (Cài đặt → Đổi mật khẩu) thì mật khẩu mới sẽ xem được ở đây. Nếu họ đã quên mật khẩu, hãy xóa tài khoản này và tạo tài khoản mới với tên đăng nhập khác.'}</p>`,
     onSubmit: form => {
       const data = readAccountForm(form);
       if (!data) return false;
