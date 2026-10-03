@@ -503,3 +503,16 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
   .att-buttons { width: 100%; }
   .att-buttons button { flex: 1; padding: 6px 4px; }
 }
+
+/* ---------- Dòng nhắc về đồng bộ đám mây ---------- */
+
+.notice {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 14px;
+}
+
+.notice.error { background: var(--danger-soft); color: var(--danger); }
+.notice .link { color: inherit; }

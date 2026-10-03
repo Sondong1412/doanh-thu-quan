@@ -1,4 +1,5 @@
-// Dữ liệu của app: lưu trong IndexedDB của trình duyệt (dự phòng bằng localStorage) và các phép tính lương.
+// Dữ liệu của app và các phép tính lương. Mặc định lưu trong IndexedDB của trình duyệt (dự phòng bằng localStorage);
+// khi đã đăng nhập đồng bộ thì dữ liệu nằm trên đám mây (xem cloud.js).
 //
 // state = {
 //   employees:  [{ id, name, salary: [{ from: 'YYYY-MM', amount }], rates: { serviceId: % }, createdAt, deletedAt? }]
@@ -14,6 +15,8 @@ const Store = (() => {
   let db = null;
   let onError = () => {};
   let onChange = () => {};
+  // Khi đã đăng nhập đồng bộ đám mây, mỗi thay đổi được gửi cho `remote` thay vì lưu cả bộ dữ liệu vào máy.
+  let remote = null;
   // Báo cho các tab khác của app biết dữ liệu vừa đổi, để tab mở sẵn không ghi đè bằng bản cũ.
   const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(DB_NAME);
 
@@ -57,7 +60,7 @@ const Store = (() => {
   }
 
   async function sync() {
-    if (await refresh()) onChange();
+    if (!remote && await refresh()) onChange();
   }
 
   async function load() {
@@ -89,6 +92,31 @@ const Store = (() => {
     } catch (err) {
       onError(err);
     }
+  }
+
+  // Ghi nhận một thay đổi: { catalog, id, value } | { record, id, date, oldDate, value } | { attendance, empId, value } | { all }.
+  // `value` là undefined nghĩa là xóa.
+  function commit(change) {
+    if (remote) remote.push(change);
+    else save();
+  }
+
+  function attachRemote(r) {
+    remote = r;
+  }
+
+  // Thay toàn bộ dữ liệu trong bộ nhớ bằng bản lấy từ đám mây (không ghi vào bản lưu trên máy).
+  function adopt(next) {
+    state = normalize(next);
+    onChange();
+  }
+
+  // Ngừng đồng bộ: quay lại bản dữ liệu lưu trên máy.
+  async function detachRemote() {
+    remote = null;
+    state = emptyState();
+    await refresh();
+    onChange();
   }
 
   /* ---------- Nhân viên & dịch vụ ---------- */
@@ -125,14 +153,14 @@ const Store = (() => {
       state.employees.push(emp);
     }
     emp.rates = rates;
-    save();
+    commit({ catalog: 'employees', id: emp.id, value: emp });
   }
 
   function saveService({ id, name, price, pct }) {
-    const svc = service(id);
+    let svc = service(id);
     if (svc) Object.assign(svc, { name, price, pct });
-    else state.services.push({ id: uid(), name, price, pct });
-    save();
+    else state.services.push(svc = { id: uid(), name, price, pct });
+    commit({ catalog: 'services', id: svc.id, value: svc });
   }
 
   // Mục đã có dữ liệu liên quan thì chỉ ẩn đi để số liệu cũ không bị mất tên.
@@ -141,9 +169,10 @@ const Store = (() => {
     const used = state.entries.some(e => e[key] === id)
       || (kind === 'employees' && (state.deductions.some(d => d.employeeId === id)
         || Object.values(state.attendance).some(day => id in day)));
-    if (used) byId(state[kind], id).deletedAt = todayStr();
+    const item = byId(state[kind], id);
+    if (used) item.deletedAt = todayStr();
     else state[kind] = state[kind].filter(x => x.id !== id);
-    save();
+    commit({ catalog: kind, id, value: used ? item : undefined });
   }
 
   // % hoa hồng: ưu tiên mức riêng của nhân viên, không có thì lấy mức mặc định của dịch vụ.
@@ -152,18 +181,22 @@ const Store = (() => {
   /* ---------- Doanh thu & khoản trừ (kind: 'entries' | 'deductions') ---------- */
 
   function add(kind, data) {
-    state[kind].push({ id: uid(), createdAt: Date.now(), ...data });
-    save();
+    const item = { id: uid(), createdAt: Date.now(), ...data };
+    state[kind].push(item);
+    commit({ record: kind, id: item.id, date: item.date, value: item });
   }
 
   function update(kind, id, data) {
-    Object.assign(byId(state[kind], id), data);
-    save();
+    const item = byId(state[kind], id);
+    const oldDate = item.date;
+    Object.assign(item, data);
+    commit({ record: kind, id, date: item.date, oldDate, value: item });
   }
 
   function remove(kind, id) {
+    const item = byId(state[kind], id);
     state[kind] = state[kind].filter(x => x.id !== id);
-    save();
+    commit({ record: kind, id, date: item.date });
   }
 
   const get = (kind, id) => byId(state[kind], id);
@@ -179,7 +212,7 @@ const Store = (() => {
     if (value === undefined) delete day[empId];
     else day[empId] = value;
     if (!Object.keys(day).length) delete state.attendance[date];
-    save();
+    commit({ attendance: date, empId, value });
   }
 
   function workDays(empId, prefix) {
@@ -231,12 +264,12 @@ const Store = (() => {
       throw new Error('Sai định dạng');
     }
     state = normalize(s);
-    save();
+    commit({ all: true });
   }
 
   function reset() {
     state = emptyState();
-    save();
+    commit({ all: true });
   }
 
   function minYear() {
@@ -248,7 +281,7 @@ const Store = (() => {
     get state() { return state; },
     set onError(fn) { onError = fn; },
     set onChange(fn) { onChange = fn; },
-    load, employees, services, pick, employee, service, empName, svcName,
+    load, attachRemote, adopt, detachRemote, employees, services, pick, employee, service, empName, svcName,
     baseSalaryFor, saveEmployee, saveService, removeItem, rateFor,
     add, update, remove, get, inPeriod, commissionOf,
     attendanceOf, setAttendance, workDays, payroll,

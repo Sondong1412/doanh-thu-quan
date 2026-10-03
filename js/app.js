@@ -2,8 +2,21 @@
 
 const Views = { revenue: RevenueView, payroll: PayrollView, settings: SettingsView };
 
+let started = false;
+
+// Dòng nhắc phía trên mọi màn hình khi phần đồng bộ đám mây cần người dùng để ý.
+function cloudNotice() {
+  const s = Cloud.status();
+  if (!s.error && (!s.configured || s.email)) return '';
+  const login = s.available && !s.email
+    ? ' <button type="button" class="link" data-action="cloud-login">Đăng nhập bằng Google</button>' : '';
+  const text = s.error || 'Chưa đăng nhập đồng bộ — dữ liệu nhập lúc này chỉ lưu trên máy này.';
+  return `<p class="notice ${s.error ? 'error' : ''}">${esc(text)}${login}</p>`;
+}
+
 function render() {
-  document.getElementById('view').innerHTML = Views[UI.tab].render();
+  if (!started) return;
+  document.getElementById('view').innerHTML = cloudNotice() + Views[UI.tab].render();
   for (const btn of document.querySelectorAll('.app-header [data-tab]')) {
     btn.classList.toggle('active', btn.dataset.tab === UI.tab);
   }
@@ -80,13 +93,24 @@ document.addEventListener('input', e => {
 
 Store.onError = () => toast('Không lưu được dữ liệu vào máy. Hãy sao lưu ra file trong Cài đặt.', true);
 
-// Tab khác vừa lưu dữ liệu: vẽ lại, trừ khi đang nhập dở để không xóa mất nội dung đang gõ.
-Store.onChange = () => {
+// Dữ liệu vừa đổi từ nơi khác (tab khác, máy khác qua đám mây): vẽ lại, trừ khi đang nhập dở để không xóa mất nội dung đang gõ.
+function renderIfIdle() {
   const busy = document.getElementById('modal').open || document.activeElement?.matches('input, select');
   if (!busy) render();
+}
+
+Store.onChange = renderIfIdle;
+Cloud.onStatus = renderIfIdle;
+
+Actions['cloud-login'] = () => Cloud.signIn();
+Actions['cloud-logout'] = async () => {
+  if (await confirmBox('Đăng xuất khỏi đồng bộ đám mây? App sẽ quay lại dùng dữ liệu lưu riêng trên máy này.', 'Đăng xuất')) Cloud.signOut();
 };
 
-Store.load().then(render);
+Store.load().then(() => Cloud.start()).then(() => {
+  started = true;
+  render();
+});
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});

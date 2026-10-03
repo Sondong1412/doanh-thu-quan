@@ -1,0 +1,19 @@
+// Quy tắc bảo mật Firestore cho app Doanh Thu Quán.
+// Dán nội dung này vào Firebase Console > Firestore Database > Rules,
+// thay địa chỉ bên dưới bằng các tài khoản Google được phép xem và nhập số liệu.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function allowed() {
+      return request.auth != null
+        && request.auth.token.email_verified
+        && request.auth.token.email in [
+          'EMAIL_CUA_BAN@gmail.com'
+        ];
+    }
+
+    match /shops/{shopId}/{document=**} {
+      allow read, write: if allowed();
+    }
+  }
+}

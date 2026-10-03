@@ -1,7 +1,30 @@
 // Màn hình "Cài đặt": quản lý nhân viên, dịch vụ và sao lưu dữ liệu.
 
+function cloudCard() {
+  const s = Cloud.status();
+  let body;
+  if (!s.onWeb) {
+    body = '<p class="hint">Đồng bộ đám mây chỉ hoạt động khi mở app bằng địa chỉ web, không dùng được khi mở file trực tiếp trên máy.</p>';
+  } else if (!s.configured) {
+    body = '<p class="hint">Chưa thiết lập. Dữ liệu hiện chỉ lưu trên máy này.</p>';
+  } else if (s.email) {
+    body = `
+      <p>Đang đồng bộ bằng tài khoản <strong>${esc(s.email)}</strong>.</p>
+      <p class="hint">${s.pending
+        ? 'Có thay đổi đang chờ gửi lên, sẽ tự gửi khi có mạng.'
+        : 'Mọi thay đổi đã được lưu lên đám mây và tự cập nhật trên các máy khác đăng nhập cùng dữ liệu.'}</p>
+      <div class="button-row"><button type="button" class="btn" data-action="cloud-logout">Đăng xuất</button></div>`;
+  } else {
+    body = `
+      <p class="hint">Đăng nhập để dữ liệu được lưu trên đám mây và dùng chung giữa điện thoại, máy tính. Khi chưa đăng nhập, dữ liệu chỉ lưu trên máy này.</p>
+      ${s.available ? '<div class="button-row"><button type="button" class="btn btn-primary" data-action="cloud-login">Đăng nhập bằng Google</button></div>' : ''}`;
+  }
+  return `<section class="card"><h2>Đồng bộ đám mây</h2>${body}</section>`;
+}
+
 const SettingsView = {
   render() {
+    const synced = Boolean(Cloud.status().email);
     const nowYm = todayStr().slice(0, 7);
     const emps = Store.employees().map(emp => {
       const own = Store.services().filter(s => emp.rates?.[s.id] !== undefined).length;
@@ -43,9 +66,12 @@ const SettingsView = {
         </div>
         ${svcs ? `<ul class="rows">${svcs}</ul>` : '<p class="empty">Chưa có dịch vụ nào.</p>'}
       </section>
+      ${cloudCard()}
       <section class="card">
         <h2>Dữ liệu</h2>
-        <p class="hint">Dữ liệu được lưu trong trình duyệt của riêng máy này. Hãy sao lưu ra file định kỳ để không mất dữ liệu khi đổi máy hoặc xóa dữ liệu trình duyệt.</p>
+        <p class="hint">${synced
+          ? 'Dữ liệu đang được lưu trên đám mây. Khôi phục từ file hoặc xóa toàn bộ sẽ áp dụng cho mọi máy đang dùng chung dữ liệu này.'
+          : 'Dữ liệu được lưu trong trình duyệt của riêng máy này. Hãy sao lưu ra file định kỳ để không mất dữ liệu khi đổi máy hoặc xóa dữ liệu trình duyệt.'}</p>
         <div class="button-row">
           <button type="button" class="btn" data-action="data-export">Sao lưu ra file</button>
           <label class="btn">Khôi phục từ file<input type="file" accept=".json,application/json" data-change="data-import" hidden></label>
@@ -144,7 +170,8 @@ Changes['data-import'] = async el => {
   if (!file) return;
   const text = await file.text();
   el.value = '';
-  if (!(await confirmBox('Khôi phục sẽ thay thế toàn bộ dữ liệu hiện tại bằng dữ liệu trong file. Tiếp tục?', 'Khôi phục'))) return;
+  const scope = Cloud.status().email ? ' trên đám mây (mọi máy đang dùng chung)' : '';
+  if (!(await confirmBox(`Khôi phục sẽ thay thế toàn bộ dữ liệu hiện tại${scope} bằng dữ liệu trong file. Tiếp tục?`, 'Khôi phục'))) return;
   try {
     Store.importData(text);
     toast('Đã khôi phục dữ liệu');
@@ -155,7 +182,8 @@ Changes['data-import'] = async el => {
 };
 
 Actions['data-reset'] = async () => {
-  if (!(await confirmBox('Xóa toàn bộ nhân viên, dịch vụ, doanh thu và bảng lương? Không thể hoàn tác.', 'Xóa tất cả'))) return;
+  const scope = Cloud.status().email ? ' trên đám mây, ở mọi máy đang dùng chung' : '';
+  if (!(await confirmBox(`Xóa toàn bộ nhân viên, dịch vụ, doanh thu và bảng lương${scope}? Không thể hoàn tác.`, 'Xóa tất cả'))) return;
   Store.reset();
   toast('Đã xóa toàn bộ dữ liệu');
   render();
