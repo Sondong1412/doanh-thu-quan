@@ -7,7 +7,7 @@ function cloudCard() {
     body = '<p class="hint">Đồng bộ đám mây chỉ hoạt động khi mở app bằng địa chỉ web, không dùng được khi mở file trực tiếp trên máy.</p>';
   } else if (!s.configured) {
     body = '<p class="hint">Chưa thiết lập. Dữ liệu hiện chỉ lưu trên máy này.</p>';
-  } else if (s.signedIn) {
+  } else {
     body = `
       <p>Đang đăng nhập: <strong>${esc(s.name)}</strong> <span class="badge">${ROLE_LABELS[s.role]}</span></p>
       <p class="hint">${s.pending
@@ -17,10 +17,6 @@ function cloudCard() {
         ${s.viaGoogle ? '' : '<button type="button" class="btn" data-action="cloud-password">Đổi mật khẩu</button>'}
         <button type="button" class="btn" data-action="cloud-logout">Đăng xuất</button>
       </div>`;
-  } else {
-    body = `
-      <p class="hint">Đăng nhập để dùng dữ liệu chung của quán trên đám mây. Khi chưa đăng nhập, dữ liệu chỉ lưu trên máy này.</p>
-      ${s.available ? '<div class="button-row"><button type="button" class="btn btn-primary" data-action="cloud-login">Đăng nhập</button></div>' : ''}`;
   }
   return `<section class="card"><h2>Đồng bộ đám mây</h2>${body}</section>`;
 }

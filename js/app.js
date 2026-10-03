@@ -11,21 +11,51 @@ function cloudNotice() {
   if (s.error) {
     lines.push(`<p class="notice error">${esc(s.error)} <button type="button" class="link" data-action="cloud-dismiss">Đóng</button></p>`);
   }
-  if (s.configured && s.available && !s.signedIn) {
-    lines.push('<p class="notice">Chưa đăng nhập — dữ liệu nhập lúc này chỉ lưu trên máy này. <button type="button" class="link" data-action="cloud-login">Đăng nhập</button></p>');
-  } else if (s.busy || s.loading) {
+  if (s.busy || s.loading) {
     lines.push(`<p class="notice">${esc(s.busy || 'Đang tải dữ liệu từ đám mây…')}</p>`);
   }
   return lines.join('');
 }
 
+// App đặt trên web chỉ dành cho người có tài khoản: chưa đăng nhập thì chỉ thấy trang giới thiệu, không có số liệu nào.
+// (Mở file trực tiếp trên máy thì không có đăng nhập, app chạy với dữ liệu riêng của máy như trước.)
+function locked() {
+  const s = Cloud.status();
+  return s.configured && !s.signedIn;
+}
+
+function landing() {
+  const features = [
+    ['Doanh thu từng ngày', 'Nhập từng lượt khách theo dịch vụ và nhân viên, xem tổng doanh thu và doanh thu thực nhận theo ngày, tháng, năm.'],
+    ['Lương nhân viên', 'Tự tính lương theo lương cứng hoặc hoa hồng từng dịch vụ, trừ thẳng các khoản ứng lương và mua sản phẩm.'],
+    ['Bảng công', 'Chấm công hằng ngày, xem lại theo tháng và cả năm.'],
+    ['Phân quyền', 'Chủ quán, quản lý và nhân viên có tài khoản riêng; mỗi người chỉ thấy phần việc của mình. Dữ liệu đồng bộ giữa điện thoại và máy tính.'],
+  ];
+  return `
+    ${cloudNotice()}
+    <section class="landing">
+      <h2>Sổ doanh thu và bảng lương cho quán</h2>
+      <p>Doanh Thu Quán giúp chủ quán theo dõi doanh thu mỗi ngày và tính lương cho nhân viên, dùng được trên điện thoại lẫn máy tính.</p>
+      ${Cloud.status().available ? '<button type="button" class="btn btn-primary" data-action="cloud-login">Đăng nhập</button>' : ''}
+      <p class="hint">App dùng nội bộ. Cần tài khoản do chủ quán cấp để xem và nhập số liệu.</p>
+    </section>
+    <div class="card-grid">
+      ${features.map(([title, text]) => `<section class="card"><h2>${title}</h2><p class="hint">${text}</p></section>`).join('')}
+    </div>`;
+}
+
 // `keepDrafts`: giữ lại nội dung đang nhập dở trong các form (dùng khi vẽ lại vì dữ liệu đổi từ nơi khác).
 function render(keepDrafts = false) {
   if (!started) return;
+  const view = document.getElementById('view');
+  document.body.classList.toggle('locked', locked());
+  if (locked()) {
+    view.innerHTML = landing();
+    return;
+  }
   // Báo cho phần đồng bộ biết kỳ đang xem để tải đúng phần dữ liệu đó.
   const scope = UI[UI.tab];
   if (scope) Cloud.need(scope.date.slice(0, scope.mode === 'year' ? 4 : 7));
-  const view = document.getElementById('view');
   const drafts = keepDrafts
     ? [...view.querySelectorAll('form[data-submit] [name]')].map(el => [`form[data-submit="${el.form.dataset.submit}"] [name="${el.name}"]`, el.value])
     : [];
@@ -120,6 +150,8 @@ function renderIfIdle() {
 
 Store.onChange = renderIfIdle;
 Cloud.onStatus = renderIfIdle;
+// Thay đổi tới trong lúc đang mở hộp thoại bị hoãn vẽ; đóng hộp thoại thì vẽ lại cho đúng trạng thái mới nhất.
+document.getElementById('modal').addEventListener('close', () => render(true));
 
 Actions['cloud-login'] = () => openModal({
   title: 'Đăng nhập',
@@ -150,7 +182,7 @@ Actions['cloud-dismiss'] = () => {
 };
 
 Actions['cloud-logout'] = async () => {
-  if (await confirmBox('Đăng xuất? App sẽ quay lại dùng dữ liệu lưu riêng trên máy này.', 'Đăng xuất')) {
+  if (await confirmBox('Đăng xuất khỏi app trên máy này?', 'Đăng xuất')) {
     UI.tab = 'revenue';
     Cloud.signOut();
   }

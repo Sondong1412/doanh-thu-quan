@@ -520,3 +520,21 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
 
 .notice.error { background: var(--danger-soft); color: var(--danger); }
 .notice .link { color: inherit; }
+
+/* ---------- Trang giới thiệu cho người chưa đăng nhập ---------- */
+
+body.locked .tabs, body.locked .settings-btn { display: none; }
+
+.landing {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+  padding: 28px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.landing h2 { font-size: 26px; line-height: 1.2; }
+.landing p { max-width: 60ch; }
+.landing .btn { min-height: 44px; padding: 0 22px; font-size: 16px; }
