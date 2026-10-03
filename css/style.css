@@ -489,7 +489,12 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
   main { padding: 12px 12px calc(76px + env(safe-area-inset-bottom)); }
   #toast { bottom: calc(72px + env(safe-area-inset-bottom)); }
   .form-grid { grid-template-columns: 1fr; }
-  .stat-value { font-size: 23px; }
+  /* Hai chỉ số đứng cạnh nhau; ô lẻ cuối cùng chiếm cả hàng. */
+  .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat { padding: 12px; }
+  .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .stat-value { font-size: 19px; }
+  .stat-label, .stat-sub { font-size: 12px; }
   .toolbar { justify-content: flex-start; }
   .period-nav { width: 100%; flex-wrap: nowrap; }
   .period-nav input, .period-nav select { flex: 1 1 auto; padding: 0 4px; }

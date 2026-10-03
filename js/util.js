@@ -119,10 +119,10 @@ function toolbar(scope, mode, date, modes) {
     </div>`;
 }
 
-const statTile = (label, value, sub = '') => `
+const statTile = (label, value, sub = '', valueCls = '') => `
   <div class="stat">
     <div class="stat-label">${esc(label)}</div>
-    <div class="stat-value">${esc(value)}</div>
+    <div class="stat-value ${valueCls}">${esc(value)}</div>
     ${sub ? `<div class="stat-sub">${esc(sub)}</div>` : ''}
   </div>`;
 

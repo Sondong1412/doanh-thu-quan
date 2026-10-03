@@ -53,6 +53,15 @@ function breakdownCards(entries) {
     </section>`;
 }
 
+// Tổng lương phải trả nhân viên trong tháng (mức cao hơn giữa lương cứng và hoa hồng của từng người).
+const staffPay = ym => sumBy(Store.payroll(ym), r => r.gross);
+
+// Ô "Doanh thu thực nhận" đặt cạnh ô tổng doanh thu: doanh thu trừ phần trả cho nhân viên.
+function netTile(total, cost, costLabel, provisional = false) {
+  return statTile('Doanh thu thực nhận', fmtMoney(total - cost),
+    `Đã trừ ${costLabel} ${fmtMoney(cost)}${provisional ? ' · tạm tính' : ''}`, total < cost ? 'neg' : '');
+}
+
 const RevenueView = {
   render() {
     const { mode, date } = UI.revenue;
@@ -61,6 +70,7 @@ const RevenueView = {
 
   day(date) {
     const entries = Store.inPeriod('entries', date).sort((a, b) => b.createdAt - a.createdAt);
+    const total = sumBy(entries, e => e.amount);
     const missing = [!Store.services().length && 'dịch vụ', !Store.employees().length && 'nhân viên'].filter(Boolean);
     const hint = missing.length
       ? `<p class="hint">Chưa có ${missing.join(' và ')}. <button type="button" class="link" data-action="tab" data-tab="settings">Mở Cài đặt</button> để thêm trước khi nhập doanh thu.</p>`
@@ -81,7 +91,8 @@ const RevenueView = {
       </li>`).join('');
     return `
       <section class="stats">
-        ${statTile(`Tổng doanh thu ngày ${fmtDate(date)}`, fmtMoney(sumBy(entries, e => e.amount)), `${WEEKDAYS[weekdayOf(date)]} · ${entries.length} lượt khách`)}
+        ${statTile('Tổng doanh thu ngày', fmtMoney(total), `${WEEKDAYS[weekdayOf(date)]} ${fmtDate(date)} · ${entries.length} lượt khách`)}
+        ${netTile(total, sumBy(entries, Store.commissionOf), 'hoa hồng nhân viên')}
       </section>
       <section class="card">
         <h2>Thêm doanh thu</h2>
@@ -99,7 +110,8 @@ const RevenueView = {
 
   month(date) {
     const { y, m } = parseYmd(date);
-    const entries = Store.inPeriod('entries', date.slice(0, 7));
+    const ym = date.slice(0, 7);
+    const entries = Store.inPeriod('entries', ym);
     const total = sumBy(entries, e => e.amount);
     const byDay = groupEntries(entries, e => e.date);
     const gotoDay = d => `data-action="goto" data-tab="revenue" data-mode="day" data-date="${d}"`;
@@ -118,7 +130,8 @@ const RevenueView = {
     }));
     return `
       <section class="stats">
-        ${statTile(`Tổng doanh thu ${fmtMonth(date).toLowerCase()}`, fmtMoney(total), `${entries.length} lượt khách`)}
+        ${statTile('Tổng doanh thu tháng', fmtMoney(total), `${fmtMonth(date)} · ${entries.length} lượt khách`)}
+        ${netTile(total, staffPay(ym), 'lương nhân viên', ym === todayStr().slice(0, 7))}
         ${statTile('Trung bình mỗi ngày có khách', fmtMoney(byDay.size ? total / byDay.size : 0), `${byDay.size} ngày có doanh thu`)}
       </section>
       <section class="card">
@@ -140,16 +153,20 @@ const RevenueView = {
     const byMonth = groupEntries(entries, e => e.date.slice(0, 7));
     const months = Array.from({ length: 12 }, (_, i) => {
       const ym = `${y}-${pad2(i + 1)}`;
-      return { m: i + 1, ym, g: byMonth.get(ym), attrs: `data-action="goto" data-tab="revenue" data-mode="month" data-date="${ym}-01"` };
+      return { m: i + 1, ym, g: byMonth.get(ym), pay: staffPay(ym), attrs: `data-action="goto" data-tab="revenue" data-mode="month" data-date="${ym}-01"` };
     });
+    const payTotal = sumBy(months, x => x.pay);
     const bars = months.map(x => ({ label: `T${x.m}`, value: x.g?.total ?? 0, tip: fmtMonth(x.ym), attrs: x.attrs }));
     const rows = months.map(x => ({
-      cells: [`Tháng ${x.m}`, x.g?.count ?? '—', x.g ? fmtMoney(x.g.total) : '—'],
+      cells: x.g || x.pay
+        ? [`Tháng ${x.m}`, x.g?.count ?? 0, fmtMoney(x.g?.total ?? 0), fmtMoney(x.pay), fmtMoney((x.g?.total ?? 0) - x.pay)]
+        : [`Tháng ${x.m}`, '—', '—', '—', '—'],
       attrs: `class="clickable" ${x.attrs}`,
     }));
     return `
       <section class="stats">
-        ${statTile(`Tổng doanh thu năm ${y}`, fmtMoney(total), `${entries.length} lượt khách`)}
+        ${statTile('Tổng doanh thu năm', fmtMoney(total), `Năm ${y} · ${entries.length} lượt khách`)}
+        ${netTile(total, payTotal, 'lương nhân viên', y === new Date().getFullYear())}
         ${statTile('Trung bình mỗi tháng có khách', fmtMoney(byMonth.size ? total / byMonth.size : 0), `${byMonth.size} tháng có doanh thu`)}
       </section>
       <section class="card">
@@ -158,7 +175,8 @@ const RevenueView = {
       </section>
       <section class="card">
         <h2>Bảng doanh thu theo tháng</h2>
-        ${table(['Tháng', 'Lượt', 'Doanh thu'], rows, ['Tổng', entries.length, fmtMoney(total)])}
+        ${table(['Tháng', 'Lượt', 'Doanh thu', 'Lương nhân viên', 'Thực nhận'], rows,
+          ['Tổng', entries.length, fmtMoney(total), fmtMoney(payTotal), fmtMoney(total - payTotal)])}
       </section>
       ${entries.length ? breakdownCards(entries) : ''}`;
   },
